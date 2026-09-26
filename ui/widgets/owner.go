@@ -1,0 +1,117 @@
+package widgets
+
+import (
+	"slices"
+	"sync"
+
+	"nectar_ui/ui/geom"
+	"nectar_ui/ui/render"
+)
+
+// BuildOwner tracks dirty elements and rebuilds them once per frame.
+type BuildOwner struct {
+	// OnScheduleFrame is called when the tree needs a new frame. It may be
+	// called from any goroutine (via Post).
+	OnScheduleFrame func()
+
+	dirty []Element
+
+	mu     sync.Mutex
+	posted []func()
+}
+
+// NewBuildOwner creates an owner.
+func NewBuildOwner() *BuildOwner { return &BuildOwner{} }
+
+func (o *BuildOwner) scheduleBuildFor(e Element) {
+	o.dirty = append(o.dirty, e)
+	o.requestFrame()
+}
+
+func (o *BuildOwner) requestFrame() {
+	if o.OnScheduleFrame != nil {
+		o.OnScheduleFrame()
+	}
+}
+
+// Post queues fn to run on the UI goroutine at the start of the next frame.
+// Safe to call from any goroutine.
+func (o *BuildOwner) Post(fn func()) {
+	o.mu.Lock()
+	o.posted = append(o.posted, fn)
+	o.mu.Unlock()
+	o.requestFrame()
+}
+
+// FlushBuild runs posted callbacks and rebuilds dirty elements, parents
+// before children (a parent rebuild usually rebuilds the child anyway).
+func (o *BuildOwner) FlushBuild() {
+	o.mu.Lock()
+	posted := o.posted
+	o.posted = nil
+	o.mu.Unlock()
+	for _, fn := range posted {
+		fn()
+	}
+
+	for len(o.dirty) > 0 {
+		batch := o.dirty
+		o.dirty = nil
+		slices.SortStableFunc(batch, func(a, b Element) int { return a.base().depth - b.base().depth })
+		for _, e := range batch {
+			if b := e.base(); b.dirty && b.active {
+				e.rebuild()
+			}
+		}
+	}
+}
+
+// --- root ------------------------------------------------------------------
+
+// rootWidget hosts the app widget inside a RenderView.
+type rootWidget struct {
+	child      Widget
+	background geom.Color
+}
+
+func (w rootWidget) ChildWidget() Widget { return w.child }
+
+func (w rootWidget) CreateRenderObject(BuildContext) render.RenderObject {
+	return &render.RenderView{Background: w.background}
+}
+
+func (w rootWidget) UpdateRenderObject(_ BuildContext, ro render.RenderObject) {
+	v := ro.(*render.RenderView)
+	if v.Background != w.background {
+		v.Background = w.background
+		render.MarkNeedsPaint(v)
+	}
+}
+
+// Root is the top of the element tree.
+type Root struct {
+	element *singleChildElement
+	owner   *BuildOwner
+}
+
+// Mount inflates app into a new element tree and attaches its render tree
+// to pipeline.
+func Mount(app Widget, background geom.Color, owner *BuildOwner, pipeline *render.PipelineOwner) *Root {
+	el := &singleChildElement{}
+	el.widget = rootWidget{child: app, background: background}
+	el.owner = owner
+	el.mount(nil)
+	pipeline.SetRoot(el.ro)
+	return &Root{element: el, owner: owner}
+}
+
+// SetApp replaces the app widget (e.g. hot reload of the whole tree).
+func (r *Root) SetApp(app Widget, background geom.Color) {
+	r.element.update(rootWidget{child: app, background: background})
+}
+
+// Context returns the root BuildContext.
+func (r *Root) Context() BuildContext { return r.element }
+
+// Unmount tears down the tree (calls Dispose on states).
+func (r *Root) Unmount() { r.element.unmount() }

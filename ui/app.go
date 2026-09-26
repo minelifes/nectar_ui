@@ -1,0 +1,120 @@
+// Package ui is the entry point: it opens a window (via gogpu), owns the
+// widget/render trees and runs the frame pipeline:
+//
+//	posted callbacks → build (dirty elements) → layout → paint → GPU
+package ui
+
+import (
+	"log/slog"
+
+	"github.com/gogpu/gogpu"
+
+	"nectar_ui/ui/geom"
+	"nectar_ui/ui/gpu"
+	"nectar_ui/ui/render"
+	"nectar_ui/ui/widgets"
+)
+
+// App runs a widget tree in a native window.
+type App struct {
+	config Config
+	gpuApp *gogpu.App
+
+	buildOwner *widgets.BuildOwner
+	pipeline   *render.PipelineOwner
+	root       *widgets.Root
+	renderer   *gpu.Renderer
+}
+
+// NewApp creates an application with the given config.
+func NewApp(config Config) *App {
+	return &App{config: config}
+}
+
+// Run mounts root and blocks until the window is closed.
+func (a *App) Run(root widgets.Widget) error {
+	cfg := gogpu.DefaultConfig().
+		WithTitle(a.config.Title).
+		WithSize(a.config.Width, a.config.Height)
+	a.gpuApp = gogpu.NewApp(cfg)
+
+	a.buildOwner = widgets.NewBuildOwner()
+	a.pipeline = render.NewPipelineOwner()
+	a.buildOwner.OnScheduleFrame = a.gpuApp.RequestRedraw
+	a.pipeline.OnNeedVisualUpdate = a.gpuApp.RequestRedraw
+
+	a.root = widgets.Mount(root, a.config.Background, a.buildOwner, a.pipeline)
+
+	a.gpuApp.OnDraw(a.frame)
+	a.gpuApp.OnClose(a.close)
+	return a.gpuApp.Run()
+}
+
+// Post runs fn on the UI goroutine before the next frame. Safe to call from
+// any goroutine.
+func (a *App) Post(fn func()) { a.buildOwner.Post(fn) }
+
+// RequestRedraw schedules a new frame.
+func (a *App) RequestRedraw() {
+	if a.gpuApp != nil {
+		a.gpuApp.RequestRedraw()
+	}
+}
+
+// frame is one iteration of the rendering pipeline.
+func (a *App) frame(dc *gogpu.Context) {
+	if a.renderer == nil {
+		dp := a.gpuApp.DeviceProvider()
+		if dp == nil {
+			return
+		}
+		r, err := gpu.New(dp.Device(), dp.SurfaceFormat())
+		if err != nil {
+			slog.Error("nectar-ui: renderer init failed", "err", err)
+			return
+		}
+		a.renderer = r
+	}
+
+	fbW, fbH := dc.FramebufferSize()
+	if fbW <= 0 || fbH <= 0 {
+		return
+	}
+	scale := float32(dc.ScaleFactor())
+	if scale <= 0 {
+		scale = 1
+	}
+	// Logical size derived from the framebuffer so both always agree.
+	window := geom.Size{W: float32(fbW) / scale, H: float32(fbH) / scale}
+
+	// 1. build  2. layout  3. paint
+	a.buildOwner.FlushBuild()
+	a.pipeline.FlushLayout(window)
+	canvas := a.pipeline.FlushPaint(window)
+
+	// 4. GPU
+	view := dc.SurfaceView()
+	enc := dc.CommandEncoder()
+	if view == nil || enc == nil {
+		return
+	}
+	err := a.renderer.Draw(gpu.Frame{
+		Encoder: enc, Target: view,
+		Width: uint32(fbW), Height: uint32(fbH), Scale: scale,
+		Clear:    a.config.Background,
+		Commands: canvas.Commands,
+	})
+	if err != nil {
+		slog.Error("nectar-ui: draw failed", "err", err)
+	}
+}
+
+func (a *App) close() {
+	if a.root != nil {
+		a.root.Unmount()
+	}
+	if a.renderer != nil {
+		a.renderer.Release()
+		a.renderer = nil
+	}
+}

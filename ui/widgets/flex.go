@@ -1,6 +1,6 @@
 package widgets
 
-import "nectar_ui/ui/render"
+import "github.com/minelifes/nectar_ui/ui/render"
 
 // Re-exported so users only need to import widgets.
 type (

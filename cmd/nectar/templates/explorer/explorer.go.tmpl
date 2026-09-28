@@ -1,0 +1,94 @@
+package main
+
+import (
+	"io/fs"
+	"strings"
+	"unicode/utf8"
+
+	"[[.Engine]]/ui/geom"
+	m "[[.Engine]]/ui/material"
+	"[[.Engine]]/ui/material/icons"
+	w "[[.Engine]]/ui/widgets"
+)
+
+// Explorer is a resizable file tree next to a preview of the selected file.
+type Explorer struct {
+	FS           fs.FS
+	Name         string
+	Dark         bool
+	OnToggleDark func()
+}
+
+func (Explorer) CreateState() w.State { return &explorerState{tree: w.NewTreeController()} }
+
+type explorerState struct {
+	w.StateBase
+	tree    *w.TreeController
+	path    string
+	preview string
+}
+
+func (s *explorerState) Build(ctx w.BuildContext) w.Widget {
+	e := w.WidgetOf[Explorer](s)
+	th := m.ThemeOf(ctx)
+	sc := th.Scheme
+
+	themeIcon := icons.DarkMode
+	if e.Dark {
+		themeIcon = icons.LightMode
+	}
+	title := "Select a file"
+	if s.path != "" {
+		title = s.path
+	}
+	preview := w.Column{Cross: w.CrossStretch, Spacing: 12, Children: []w.Widget{
+		w.Text{Text: title, Style: m.Styled(th.Text.TitleMedium, sc.OnSurface), MaxLines: 1, Ellipsis: true},
+		w.Expanded{Child: w.ScrollView{ThumbColor: sc.OnSurface.WithAlpha(0.3),
+			Child: w.Text{Text: s.preview, Style: m.Styled(th.Text.BodyMedium, sc.OnSurfaceVariant)}}},
+	}}
+	return m.Scaffold{
+		AppBar: m.AppBar{Title: e.Name, Actions: []w.Widget{
+			m.Tooltip{Message: "Collapse all", Child: m.IconButton{Icon: icons.UnfoldLess, OnPressed: s.tree.CollapseAll}},
+			m.Tooltip{Message: "Reload", Child: m.IconButton{Icon: icons.Refresh, OnPressed: func() { s.tree.Reload("") }}},
+			m.Tooltip{Message: "Toggle dark mode", Child: m.IconButton{Icon: themeIcon, OnPressed: e.OnToggleDark}},
+		}},
+		Body: w.Padding{Padding: geom.InsetsLTRB(16, 0, 16, 16), Child: m.SplitView{Panes: []w.Pane{
+			{Min: 200, Max: 520, Size: 300, Child: m.Card{Variant: m.CardOutlined, Padding: geom.InsetsHV(0, 8),
+				Child: m.FileTree{FS: e.FS, Controller: s.tree, ShowGuides: true,
+					OnSelect: s.show,
+					OnOpen:   func(p string) { m.ShowSnackBar(ctx, m.SnackBar{Message: "Open " + p}) },
+				}}},
+			{Min: 280, Child: m.Card{Variant: m.CardFilled, Padding: geom.Insets(20), Child: preview}},
+		}}},
+	}
+}
+
+func (s *explorerState) show(p string, d fs.DirEntry) {
+	fsys := w.WidgetOf[Explorer](s).FS
+	s.SetState(func() {
+		s.path = p
+		s.preview = ""
+		if d != nil && !d.IsDir() {
+			s.preview = previewFile(fsys, p)
+		}
+	})
+}
+
+// previewFile returns the start of a text file.
+func previewFile(fsys fs.FS, p string) string {
+	if st, err := fs.Stat(fsys, p); err != nil || st.Size() > 512<<10 {
+		return "(too large to preview)"
+	}
+	data, err := fs.ReadFile(fsys, p)
+	if err != nil {
+		return err.Error()
+	}
+	if !utf8.Valid(data) || strings.ContainsRune(string(data), 0) {
+		return "(binary file)"
+	}
+	lines := strings.Split(string(data), "\n")
+	if len(lines) > 200 {
+		lines = append(lines[:200], "…")
+	}
+	return strings.ReplaceAll(strings.Join(lines, "\n"), "\t", "    ")
+}

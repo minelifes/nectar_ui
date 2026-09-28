@@ -6,7 +6,7 @@
 // a Canvas display list; the gpu package turns that list into draw calls.
 package render
 
-import "nectar_ui/ui/geom"
+import "github.com/minelifes/nectar_ui/ui/geom"
 
 // RenderObject is a node of the render tree.
 type RenderObject interface {
@@ -131,32 +131,6 @@ func attach(ro RenderObject, o *PipelineOwner) {
 func detach(ro RenderObject) {
 	ro.Base().owner = nil
 	ro.VisitChildren(detach)
-}
-
-// HitTest collects the path of render objects under position (deepest
-// first). position is in the coordinate space of ro's parent.
-func HitTest(ro RenderObject, position geom.Offset, out []RenderObject) []RenderObject {
-	b := ro.Base()
-	local := position.Sub(b.offset)
-	if !geom.RectFrom(geom.Offset{}, b.size).Contains(local) {
-		return out
-	}
-	// Children painted last are on top, so test them first.
-	var kids []RenderObject
-	ro.VisitChildren(func(c RenderObject) { kids = append(kids, c) })
-	for i := len(kids) - 1; i >= 0; i-- {
-		n := len(out)
-		out = HitTest(kids[i], local, out)
-		if len(out) > n {
-			break
-		}
-	}
-	if ht, ok := ro.(HitTester); ok && ht.HitTestSelf(local) {
-		out = append(out, ro)
-	} else if len(out) > 0 {
-		out = append(out, ro) // ancestors of a hit are on the path too
-	}
-	return out
 }
 
 // PipelineOwner drives layout and paint for a render tree.

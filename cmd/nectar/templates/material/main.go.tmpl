@@ -1,0 +1,14 @@
+package main
+
+import (
+	"log"
+
+	"[[.Engine]]/ui"
+)
+
+func main() {
+	app := ui.NewApp(ui.DefaultConfig().WithTitle([[printf "%q" .Title]]).WithSize(960, 640))
+	if err := app.Run(App{}); err != nil {
+		log.Fatal(err)
+	}
+}

@@ -1,9 +1,11 @@
-package gpu
+package tests
 
 import (
 	"context"
 	"image"
 	"image/png"
+	"github.com/minelifes/nectar_ui/ui/gpu"
+	"github.com/minelifes/nectar_ui/ui/widgets/text"
 	"os"
 	"testing"
 
@@ -11,10 +13,9 @@ import (
 	"github.com/gogpu/wgpu"
 	_ "github.com/gogpu/wgpu/hal/allbackends" // software fallback for CI
 
-	"nectar_ui/ui/geom"
-	"nectar_ui/ui/render"
-	"nectar_ui/ui/text"
-	"nectar_ui/ui/widgets"
+	"github.com/minelifes/nectar_ui/ui/geom"
+	"github.com/minelifes/nectar_ui/ui/render"
+	"github.com/minelifes/nectar_ui/ui/widgets"
 )
 
 // renderOffscreen draws app into an RGBA texture and reads it back.
@@ -39,7 +40,7 @@ func renderOffscreen(t *testing.T, app widgets.Widget, w, h int, scale float32) 
 	t.Cleanup(dev.Release)
 
 	const format = gputypes.TextureFormatRGBA8Unorm
-	r, err := New(dev, format)
+	r, err := gpu.New(dev, format)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -74,7 +75,7 @@ func renderOffscreen(t *testing.T, app widgets.Widget, w, h int, scale float32) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = r.Draw(Frame{Encoder: enc, Target: view, Width: pw, Height: ph, Scale: scale,
+	err = r.Draw(gpu.Frame{Encoder: enc, Target: view, Width: pw, Height: ph, Scale: scale,
 		Clear: geom.Hex(0xf4f1ea), Commands: canvas.Commands})
 	if err != nil {
 		t.Fatalf("Draw: %v", err)

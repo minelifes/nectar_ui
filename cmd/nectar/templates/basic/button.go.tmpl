@@ -1,0 +1,53 @@
+package main
+
+import (
+	"[[.Engine]]/ui/geom"
+	"[[.Engine]]/ui/render"
+	w "[[.Engine]]/ui/widgets"
+	"[[.Engine]]/ui/widgets/text"
+)
+
+// Button is a small custom widget: a rounded rectangle that darkens on
+// hover and press. It shows how to combine MouseRegion (hover, cursor),
+// GestureDetector (taps) and CustomPaint (drawing).
+type Button struct {
+	Label     string
+	OnPressed func()
+}
+
+func (Button) CreateState() w.State { return &buttonState{} }
+
+type buttonState struct {
+	w.StateBase
+	hovered, pressed bool
+}
+
+func (s *buttonState) Build(w.BuildContext) w.Widget {
+	b := w.WidgetOf[Button](s)
+	bg := accent
+	switch {
+	case s.pressed:
+		bg = accentPressed
+	case s.hovered:
+		bg = accentHover
+	}
+	set := func(f func()) { s.SetState(f) }
+	return w.MouseRegion{
+		Cursor:  w.CursorPointer,
+		OnEnter: func(w.PointerEvent) { set(func() { s.hovered = true }) },
+		OnExit:  func(w.PointerEvent) { set(func() { s.hovered, s.pressed = false, false }) },
+		Child: w.GestureDetector{
+			OnTapDown:   func(w.TapDetails) { set(func() { s.pressed = true }) },
+			OnTapUp:     func(w.TapDetails) { set(func() { s.pressed = false }) },
+			OnTapCancel: func() { set(func() { s.pressed = false }) },
+			OnTap:       b.OnPressed,
+			Child: w.CustomPaint{
+				Painter: func(c *render.Canvas, o geom.Offset, size geom.Size) {
+					c.FillRoundRect(geom.RectFrom(o, size), 10, bg)
+				},
+				Child: w.Padding{Padding: geom.InsetsHV(20, 10),
+					Child: w.Text{Text: b.Label, Style: text.Style{Size: 15, Color: geom.White}}},
+			},
+		},
+	}
+}

@@ -3,12 +3,12 @@ package main
 import (
 	"fmt"
 	"log"
+	text2 "github.com/minelifes/nectar_ui/ui/widgets/text"
 	"time"
 
-	"nectar_ui/ui"
-	"nectar_ui/ui/geom"
-	"nectar_ui/ui/text"
-	w "nectar_ui/ui/widgets"
+	"github.com/minelifes/nectar_ui/ui"
+	"github.com/minelifes/nectar_ui/ui/geom"
+	w "github.com/minelifes/nectar_ui/ui/widgets"
 )
 
 func main() {
@@ -34,13 +34,13 @@ type Demo struct{}
 
 func (Demo) Build(ctx w.BuildContext) w.Widget {
 	return w.DefaultTextStyle{
-		Style: text.Style{Size: 15, Color: ink},
+		Style: text2.Style{Size: 15, Color: ink},
 		Child: w.Row{Cross: w.CrossStretch, Children: []w.Widget{
 			Sidebar{},
 			w.Expanded{Child: w.Container{
 				Padding: geom.Insets(28),
 				Child: w.Column{Spacing: 18, Cross: w.CrossStretch, Children: []w.Widget{
-					w.Text{Text: "Text rendering", Style: text.Style{Size: 28, Font: text.DefaultBoldFont()}},
+					w.Text{Text: "Text rendering", Style: text2.Style{Size: 28, Font: text2.DefaultBoldFont()}},
 					w.Row{Spacing: 18, Cross: w.CrossStart, Children: []w.Widget{
 						w.Expanded{Child: Card{Title: "Wrapping", Body: loremEN}},
 						w.Expanded{Child: Card{Title: "Кирилиця", Body: loremUA}},
@@ -72,19 +72,19 @@ func (Sidebar) Build(w.BuildContext) w.Widget {
 			Border: &geom.Border{
 				Radius: 6,
 			},
-			Child: w.Text{Text: label, Style: text.Style{Color: fg}},
+			Child: w.Text{Text: label, Style: text2.Style{Color: fg}},
 		}
 	}
 	return w.Container{
 		Width: 200, Color: sidebar, Padding: geom.Insets(16),
 		Child: w.Column{Spacing: 6, Cross: w.CrossStretch, Children: []w.Widget{
-			w.Text{Text: "nectar", Style: text.Style{Size: 20, Color: honey, Font: text.DefaultBoldFont()}},
+			w.Text{Text: "nectar", Style: text2.Style{Size: 20, Color: honey, Font: text2.DefaultBoldFont()}},
 			w.SizedBox{Height: 12},
 			item("Text", true),
 			item("Layout", false),
 			item("Widgets", false),
 			w.Spacer{},
-			w.Text{Text: "wgpu · gogpu", Style: text.Style{Size: 12, Color: muted}, Align: text.AlignCenter},
+			w.Text{Text: "wgpu · gogpu", Style: text2.Style{Size: 12, Color: muted}, Align: text2.AlignCenter},
 		}},
 	}
 }
@@ -106,8 +106,8 @@ func (c Card) Build(w.BuildContext) w.Widget {
 		},
 		Padding: geom.Insets(16),
 		Child: w.Column{Spacing: 8, Cross: w.CrossStretch, ShrinkMain: true, Children: []w.Widget{
-			w.Text{Text: c.Title, Style: text.Style{Size: 13, Color: muted, Font: text.DefaultBoldFont()}},
-			w.Text{Text: c.Body, MaxLines: c.MaxLines, Ellipsis: c.MaxLines > 0, Style: text.Style{LineHeight: 1.4}},
+			w.Text{Text: c.Title, Style: text2.Style{Size: 13, Color: muted, Font: text2.DefaultBoldFont()}},
+			w.Text{Text: c.Body, MaxLines: c.MaxLines, Ellipsis: c.MaxLines > 0, Style: text2.Style{LineHeight: 1.4}},
 		}},
 	}
 }
@@ -152,7 +152,7 @@ type Sizes struct{}
 func (Sizes) Build(w.BuildContext) w.Widget {
 	var kids []w.Widget
 	for _, sz := range []float32{10, 12, 14, 18, 24, 32, 44} {
-		kids = append(kids, w.Text{Text: "Aa", Style: text.Style{Size: sz}})
+		kids = append(kids, w.Text{Text: "Aa", Style: text2.Style{Size: sz}})
 	}
 	return w.Container{
 		Color: card,

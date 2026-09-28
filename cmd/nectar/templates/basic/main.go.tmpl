@@ -1,0 +1,15 @@
+package main
+
+import (
+	"log"
+
+	"[[.Engine]]/ui"
+	"[[.Engine]]/ui/geom"
+)
+
+func main() {
+	cfg := ui.DefaultConfig().WithTitle([[printf "%q" .Title]]).WithSize(720, 480).WithBackground(geom.Hex(0xF6F7FB))
+	if err := ui.NewApp(cfg).Run(App{}); err != nil {
+		log.Fatal(err)
+	}
+}

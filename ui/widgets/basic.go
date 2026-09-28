@@ -1,9 +1,9 @@
 package widgets
 
 import (
-	"nectar_ui/ui/geom"
-	"nectar_ui/ui/render"
-	"nectar_ui/ui/text"
+	"github.com/minelifes/nectar_ui/ui/geom"
+	"github.com/minelifes/nectar_ui/ui/render"
+	"github.com/minelifes/nectar_ui/ui/widgets/text"
 )
 
 // ---------------------------------------------------------------------------

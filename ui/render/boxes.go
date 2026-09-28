@@ -1,6 +1,6 @@
 package render
 
-import "nectar_ui/ui/geom"
+import "github.com/minelifes/nectar_ui/ui/geom"
 
 // Base implements RenderObject.Base for every type that embeds Box.
 func (b *Box) Base() *Box { return b }

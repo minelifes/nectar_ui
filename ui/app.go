@@ -9,10 +9,10 @@ import (
 
 	"github.com/gogpu/gogpu"
 
-	"nectar_ui/ui/geom"
-	"nectar_ui/ui/gpu"
-	"nectar_ui/ui/render"
-	"nectar_ui/ui/widgets"
+	"github.com/minelifes/nectar_ui/ui/geom"
+	"github.com/minelifes/nectar_ui/ui/gpu"
+	"github.com/minelifes/nectar_ui/ui/render"
+	"github.com/minelifes/nectar_ui/ui/widgets"
 )
 
 // App runs a widget tree in a native window.
@@ -24,6 +24,7 @@ type App struct {
 	pipeline   *render.PipelineOwner
 	root       *widgets.Root
 	renderer   *gpu.Renderer
+	input      *inputQueue
 }
 
 // NewApp creates an application with the given config.
@@ -45,6 +46,7 @@ func (a *App) Run(root widgets.Widget) error {
 
 	a.root = widgets.Mount(root, a.config.Background, a.buildOwner, a.pipeline)
 
+	a.setupInput()
 	a.gpuApp.OnDraw(a.frame)
 	a.gpuApp.OnClose(a.close)
 	return a.gpuApp.Run()
@@ -87,7 +89,8 @@ func (a *App) frame(dc *gogpu.Context) {
 	// Logical size derived from the framebuffer so both always agree.
 	window := geom.Size{W: float32(fbW) / scale, H: float32(fbH) / scale}
 
-	// 1. build  2. layout  3. paint
+	// 0. input  1. build  2. layout  3. paint
+	a.processInput()
 	a.buildOwner.FlushBuild()
 	a.pipeline.FlushLayout(window)
 	canvas := a.pipeline.FlushPaint(window)
@@ -106,6 +109,10 @@ func (a *App) frame(dc *gogpu.Context) {
 	})
 	if err != nil {
 		slog.Error("nectar-ui: draw failed", "err", err)
+	}
+	// Keep frames coming while something animates.
+	if a.buildOwner.HasActiveTickers() {
+		a.gpuApp.RequestRedraw()
 	}
 }
 

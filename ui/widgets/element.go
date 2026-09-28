@@ -3,7 +3,7 @@ package widgets
 import (
 	"fmt"
 
-	"nectar_ui/ui/render"
+	"github.com/minelifes/nectar_ui/ui/render"
 )
 
 // BuildContext is a handle to an element's location in the tree.
@@ -111,6 +111,11 @@ func updateChild(parent Element, child Element, w Widget) Element {
 		return nil
 	}
 	if child != nil {
+		if sameWidget(child.Widget(), w) {
+			// Identical configuration: nothing to do. The subtree still
+			// rebuilds on its own if it's dirty (SetState, inherited change).
+			return child
+		}
 		if canUpdate(child.Widget(), w) {
 			child.update(w)
 			return child
@@ -255,7 +260,7 @@ func (e *statefulElement) mount(parent Element) {
 func (e *statefulElement) update(w Widget) {
 	old := e.widget
 	e.widget = w
-	if s, ok := e.state.(didUpdateWidgeter); ok {
+	if s, ok := e.state.(didUpdateWidget); ok {
 		s.DidUpdateWidget(old)
 	}
 	e.rebuild()
@@ -305,29 +310,42 @@ func (e *inheritedElement) unmount() {
 }
 
 // DependOn finds the nearest ancestor InheritedWidget of type T and registers
-// ctx to rebuild when it changes.
+// ctx to rebuild when it changes (Flutter's dependOnInheritedWidgetOfExactType).
 func DependOn[T InheritedWidget](ctx BuildContext) (T, bool) {
+	el, ie, w, ok := findInherited[T](ctx)
+	if ok {
+		ie.dependents[el] = struct{}{}
+		b := el.base()
+		if b.deps == nil {
+			b.deps = map[*inheritedElement]struct{}{}
+		}
+		b.deps[ie] = struct{}{}
+	}
+	return w, ok
+}
+
+// Find looks up the nearest ancestor InheritedWidget of type T without
+// subscribing to changes (Flutter's getInheritedWidgetOfExactType). Use it in
+// event handlers or InitState, where a rebuild wouldn't help.
+func Find[T InheritedWidget](ctx BuildContext) (T, bool) {
+	_, _, w, ok := findInherited[T](ctx)
+	return w, ok
+}
+
+func findInherited[T InheritedWidget](ctx BuildContext) (Element, *inheritedElement, T, bool) {
 	var zero T
 	el, ok := ctx.(Element)
 	if !ok {
-		return zero, false
+		return nil, nil, zero, false
 	}
 	for p := el.base().parent; p != nil; p = p.base().parent {
-		ie, ok := p.(*inheritedElement)
-		if !ok {
-			continue
-		}
-		if w, ok := ie.widget.(T); ok {
-			ie.dependents[el] = struct{}{}
-			b := el.base()
-			if b.deps == nil {
-				b.deps = map[*inheritedElement]struct{}{}
+		if ie, ok := p.(*inheritedElement); ok {
+			if w, ok := ie.widget.(T); ok {
+				return el, ie, w, true
 			}
-			b.deps[ie] = struct{}{}
-			return w, true
 		}
 	}
-	return zero, false
+	return nil, nil, zero, false
 }
 
 // --- render object elements -----------------------------------------------

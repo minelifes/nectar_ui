@@ -1,6 +1,6 @@
 package ui
 
-import "nectar_ui/ui/geom"
+import "github.com/minelifes/nectar_ui/ui/geom"
 
 // Config configures the application window.
 type Config struct {

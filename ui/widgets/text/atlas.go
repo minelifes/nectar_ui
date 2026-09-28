@@ -39,6 +39,7 @@ type Atlas struct {
 	size   int
 	pixels []byte
 	cache  map[GlyphKey]AtlasGlyph
+	masks  map[MaskKey]AtlasGlyph
 
 	shelfX, shelfY, shelfH int
 	dirty                  image.Rectangle
@@ -79,6 +80,7 @@ func (a *Atlas) WhiteUV() (u, v float32) {
 func (a *Atlas) Reset() {
 	clear(a.pixels)
 	a.cache = make(map[GlyphKey]AtlasGlyph, 256)
+	a.masks = make(map[MaskKey]AtlasGlyph, 64)
 	for y := 0; y < whiteBlock; y++ {
 		for x := 0; x < whiteBlock; x++ {
 			i := (y*a.size + x) * 4
@@ -211,4 +213,44 @@ func (a *Atlas) blit(ax, ay, w, h int) {
 		}
 	}
 	a.dirty = a.dirty.Union(image.Rect(ax, ay, ax+w, ay+h))
+}
+
+// MaskKey identifies a non-text coverage mask (icons, vector shapes).
+type MaskKey struct {
+	Kind uint32 // namespace chosen by the caller (e.g. 1 = icon)
+	ID   uint32
+	Size uint32 // physical pixel size * 64
+	Sub  uint8  // subpixel bin
+}
+
+// Mask returns the atlas entry for a caller-drawn w×h coverage mask,
+// rasterizing it with draw on first use. draw receives a rasterizer already
+// reset to w×h. ok is false when the atlas is full.
+func (a *Atlas) Mask(key MaskKey, w, h int, draw func(z *vector.Rasterizer)) (AtlasGlyph, bool) {
+	if e, ok := a.masks[key]; ok {
+		return e, true
+	}
+	if w <= 0 || h <= 0 {
+		e := AtlasGlyph{Empty: true}
+		a.masks[key] = e
+		return e, true
+	}
+	ax, ay, ok := a.alloc(w, h)
+	if !ok {
+		return AtlasGlyph{}, false
+	}
+	z := a.raster
+	z.Reset(w, h)
+	draw(z)
+	if a.mask == nil || a.mask.Rect.Dx() < w || a.mask.Rect.Dy() < h {
+		a.mask = image.NewAlpha(image.Rect(0, 0, max(w, 64), max(h, 64)))
+	}
+	for y := 0; y < h; y++ {
+		clear(a.mask.Pix[y*a.mask.Stride : y*a.mask.Stride+w])
+	}
+	z.Draw(a.mask, image.Rect(0, 0, w, h), image.Opaque, image.Point{})
+	a.blit(ax, ay, w, h)
+	e := AtlasGlyph{X: ax, Y: ay, W: w, H: h}
+	a.masks[key] = e
+	return e, true
 }

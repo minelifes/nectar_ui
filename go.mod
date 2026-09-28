@@ -1,4 +1,4 @@
-module nectar_ui
+module github.com/minelifes/nectar_ui
 
 go 1.26.0
 

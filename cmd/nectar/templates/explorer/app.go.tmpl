@@ -1,0 +1,28 @@
+package main
+
+import (
+	"io/fs"
+
+	m "[[.Engine]]/ui/material"
+	w "[[.Engine]]/ui/widgets"
+)
+
+// App browses FS (a folder on disk in main, an in-memory FS in tests).
+type App struct {
+	FS   fs.FS
+	Name string // label of the root folder
+}
+
+func (App) CreateState() w.State { return &appState{} }
+
+type appState struct {
+	w.StateBase
+	dark bool
+}
+
+func (s *appState) Build(w.BuildContext) w.Widget {
+	a := w.WidgetOf[App](s)
+	return m.App{Dark: s.dark, Home: w.Builder{Builder: func(ctx w.BuildContext) w.Widget {
+		return Explorer{FS: a.FS, Name: a.Name, Dark: s.dark, OnToggleDark: func() { s.SetState(func() { s.dark = !s.dark }) }}
+	}}}
+}

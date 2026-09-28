@@ -1,0 +1,25 @@
+package main
+
+import (
+	"log"
+	"os"
+	"path/filepath"
+
+	"[[.Engine]]/ui"
+)
+
+// Usage: [[.Name]] [folder]   (default: the current folder)
+func main() {
+	root := "."
+	if len(os.Args) > 1 {
+		root = os.Args[1]
+	}
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		log.Fatal(err)
+	}
+	app := ui.NewApp(ui.DefaultConfig().WithTitle([[printf "%q" .Title]] + " — " + abs).WithSize(1100, 720))
+	if err := app.Run(App{FS: os.DirFS(abs), Name: filepath.Base(abs)}); err != nil {
+		log.Fatal(err)
+	}
+}

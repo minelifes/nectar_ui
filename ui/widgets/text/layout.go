@@ -5,7 +5,7 @@ import (
 	"strings"
 	"unicode"
 
-	"nectar_ui/ui/geom"
+	"github.com/minelifes/nectar_ui/ui/geom"
 )
 
 // DefaultSize is used when Style.Size is zero.

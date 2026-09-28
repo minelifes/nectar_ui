@@ -1,0 +1,36 @@
+package main
+
+import (
+	"[[.Engine]]/ui/geom"
+	m "[[.Engine]]/ui/material"
+	w "[[.Engine]]/ui/widgets"
+)
+
+// App is the root widget: it owns the theme and app-wide settings.
+type App struct{}
+
+func (App) CreateState() w.State { return &appState{seed: m.BaselineSeed} }
+
+type appState struct {
+	w.StateBase
+	seed geom.Color // theme seed color: the whole M3 palette is derived from it
+	dark bool
+}
+
+func (s *appState) Build(w.BuildContext) w.Widget {
+	return m.App{
+		Theme: m.NewTheme(s.seed, false),
+		Dark:  s.dark,
+		// Builder gives the page a context below the theme, so
+		// m.ThemeOf(ctx) sees it.
+		Home: w.Builder{Builder: func(ctx w.BuildContext) w.Widget {
+			return HomePage{
+				Title: [[printf "%q" .Title]],
+				Dark:  s.dark,
+				OnToggleDark: func() {
+					s.SetState(func() { s.dark = !s.dark })
+				},
+			}
+		}},
+	}
+}

@@ -1,0 +1,32 @@
+package main
+
+import (
+	"testing"
+
+	"[[.Engine]]/ui/tester"
+)
+
+// The tester runs the app headless: tap, type, drag and find text.
+func TestCounter(t *testing.T) {
+	tt := tester.New(App{}, 960, 640)
+	tt.Settle()
+	if _, ok := tt.Find("0"); !ok {
+		t.Fatalf("counter not shown: %v", tt.Texts())
+	}
+	for range 3 {
+		if err := tt.TapText("Add"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tt.Settle()
+	if _, ok := tt.Find("3"); !ok {
+		t.Fatalf("after 3 taps: %v", tt.Texts())
+	}
+	if err := tt.TapText("Reset"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Settle()
+	if _, ok := tt.Find("0"); !ok {
+		t.Fatalf("after reset: %v", tt.Texts())
+	}
+}

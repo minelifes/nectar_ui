@@ -1,6 +1,6 @@
 package render
 
-import "nectar_ui/ui/geom"
+import "github.com/minelifes/nectar_ui/ui/geom"
 
 // Axis is a layout direction.
 type Axis uint8
@@ -120,6 +120,10 @@ func (r *RenderFlex) PerformLayout(c geom.Constraints) geom.Size {
 			minMain := float32(0)
 			if f.Fit {
 				minMain = share
+			}
+			if geom.IsInf(maxMain) {
+				// Nothing to share on an unbounded axis: size to content.
+				share, minMain = geom.Inf, 0
 			}
 			s := Layout(ch, r.constraints(minMain, share, minCross, maxCross))
 			used += r.main(s)

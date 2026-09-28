@@ -1,0 +1,43 @@
+package main
+
+import (
+	"fmt"
+
+	"[[.Engine]]/ui/geom"
+	w "[[.Engine]]/ui/widgets"
+	"[[.Engine]]/ui/widgets/text"
+)
+
+var (
+	ink    = geom.Hex(0x1F2430)
+	muted  = geom.Hex(0x5C6370)
+	accent        = geom.Hex(0x3B6FF5)
+	accentHover   = geom.Hex(0x2F5FE0)
+	accentPressed = geom.Hex(0x244DC0)
+)
+
+// App is the root widget. This template uses only the core widgets
+// package; add "[[.Engine]]/ui/material" for Material 3 components.
+type App struct{}
+
+func (App) CreateState() w.State { return &appState{} }
+
+type appState struct {
+	w.StateBase
+	count int
+}
+
+func (s *appState) Build(w.BuildContext) w.Widget {
+	return w.Center{Child: w.Column{ShrinkMain: true, Cross: w.CrossCenter, Spacing: 16, Children: []w.Widget{
+		w.Text{Text: [[printf "%q" .Title]], Style: text.Style{Size: 28, Color: ink}},
+		w.Text{Text: clicks(s.count), Style: text.Style{Size: 16, Color: muted}},
+		Button{Label: "Click me", OnPressed: func() { s.SetState(func() { s.count++ }) }},
+	}}}
+}
+
+func clicks(n int) string {
+	if n == 1 {
+		return "Clicked once"
+	}
+	return fmt.Sprintf("Clicked %d times", n)
+}

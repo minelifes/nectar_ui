@@ -19,7 +19,7 @@ package widgets
 import (
 	"reflect"
 
-	"nectar_ui/ui/render"
+	"github.com/minelifes/nectar_ui/ui/render"
 )
 
 // Widget is any value implementing one of the widget interfaces below.
@@ -82,6 +82,22 @@ func keyOf(w Widget) any {
 	return nil
 }
 
+// sameWidget reports whether w is identical to old, so the subtree can be
+// skipped entirely. True for the same pointer, or equal comparable values
+// (structs without slices/maps/funcs). This is Go's version of Flutter's
+// const widgets: hoisting or reusing a widget value avoids rebuilding it.
+// It relies on widgets being immutable once built.
+func sameWidget(old, w Widget) bool {
+	a, b := reflect.ValueOf(old), reflect.ValueOf(w)
+	if a.Type() != b.Type() {
+		return false
+	}
+	if a.Kind() == reflect.Pointer {
+		return a.Pointer() == b.Pointer()
+	}
+	return a.Comparable() && b.Comparable() && a.Equal(b)
+}
+
 // canUpdate reports whether an element built for old can be reused for w.
 func canUpdate(old, w Widget) bool {
 	return reflect.TypeOf(old) == reflect.TypeOf(w) && keyOf(old) == keyOf(w)
@@ -135,7 +151,7 @@ func WidgetOf[W any](s State) W { return s.stateBase().Widget().(W) }
 
 // Optional State lifecycle hooks.
 type (
-	initStater        interface{ InitState() }
-	didUpdateWidgeter interface{ DidUpdateWidget(old Widget) }
-	disposer          interface{ Dispose() }
+	initStater      interface{ InitState() }
+	didUpdateWidget interface{ DidUpdateWidget(old Widget) }
+	disposer        interface{ Dispose() }
 )

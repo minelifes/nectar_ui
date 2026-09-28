@@ -1,21 +1,22 @@
-package widgets
+package tests
 
 import (
+	"github.com/minelifes/nectar_ui/ui/widgets"
+	"github.com/minelifes/nectar_ui/ui/widgets/text"
 	"testing"
 
-	"nectar_ui/ui/geom"
-	"nectar_ui/ui/render"
-	"nectar_ui/ui/text"
+	"github.com/minelifes/nectar_ui/ui/geom"
+	"github.com/minelifes/nectar_ui/ui/render"
 )
 
 // --- a stateful test widget ---
 
 type counter struct{ Label string }
 
-func (counter) CreateState() State { return &counterState{} }
+func (counter) CreateState() widgets.State { return &counterState{} }
 
 type counterState struct {
-	StateBase
+	widgets.StateBase
 	n        int
 	inits    int
 	disposed bool
@@ -23,14 +24,14 @@ type counterState struct {
 
 func (s *counterState) InitState() { s.inits++ }
 func (s *counterState) Dispose()   { s.disposed = true }
-func (s *counterState) Build(BuildContext) Widget {
-	return Text{Text: WidgetOf[counter](s).Label + string(rune('0'+s.n))}
+func (s *counterState) Build(widgets.BuildContext) widgets.Widget {
+	return widgets.Text{Text: widgets.WidgetOf[counter](s).Label + string(rune('0'+s.n))}
 }
 
-func setup(app Widget) (*Root, *BuildOwner, *render.PipelineOwner) {
-	bo := NewBuildOwner()
+func setup(app widgets.Widget) (*widgets.Root, *widgets.BuildOwner, *render.PipelineOwner) {
+	bo := widgets.NewBuildOwner()
 	po := render.NewPipelineOwner()
-	root := Mount(app, geom.White, bo, po)
+	root := widgets.Mount(app, geom.White, bo, po)
 	po.FlushLayout(geom.Size{W: 400, H: 300})
 	return root, bo, po
 }
@@ -54,12 +55,12 @@ func paragraphs(po *render.PipelineOwner) []string {
 
 func TestSetStateRebuildsAndUpdatesRenderTree(t *testing.T) {
 	var st *counterState
-	root, bo, po := setup(Center{Child: counter{Label: "n="}})
-	root.element.visitChildren(func(Element) {})
+	root, bo, po := setup(widgets.Center{Child: counter{Label: "n="}})
+	root.element.visitChildren(func(widgets.Element) {})
 	// grab the state
-	var walk func(e Element)
-	walk = func(e Element) {
-		if se, ok := e.(*statefulElement); ok {
+	var walk func(e widgets.Element)
+	walk = func(e widgets.Element) {
+		if se, ok := e.(*widgets.statefulElement); ok {
 			st = se.state.(*counterState)
 		}
 		e.visitChildren(walk)
@@ -78,20 +79,20 @@ func TestSetStateRebuildsAndUpdatesRenderTree(t *testing.T) {
 }
 
 func TestKeyedChildrenKeepState(t *testing.T) {
-	mk := func(order ...string) Widget {
-		var kids []Widget
+	mk := func(order ...string) widgets.Widget {
+		var kids []widgets.Widget
 		for _, k := range order {
-			kids = append(kids, KeyedSubtree{ID: k, Child: counter{Label: k}})
+			kids = append(kids, widgets.KeyedSubtree{ID: k, Child: counter{Label: k}})
 		}
-		return Column{Children: kids}
+		return widgets.Column{Children: kids}
 	}
 	root, bo, po := setup(mk("a", "b"))
 	states := map[string]*counterState{}
-	var walk func(e Element)
-	walk = func(e Element) {
-		if se, ok := e.(*statefulElement); ok {
+	var walk func(e widgets.Element)
+	walk = func(e widgets.Element) {
+		if se, ok := e.(*widgets.statefulElement); ok {
 			s := se.state.(*counterState)
-			states[WidgetOf[counter](s).Label] = s
+			states[widgets.WidgetOf[counter](s).Label] = s
 		}
 		e.visitChildren(walk)
 	}
@@ -117,8 +118,8 @@ func TestKeyedChildrenKeepState(t *testing.T) {
 }
 
 func TestSwapWidgetTypeReattachesRenderObject(t *testing.T) {
-	root, _, po := setup(Text{Text: "one"})
-	root.SetApp(Padding{Padding: geom.Insets(4), Child: Text{Text: "two"}}, geom.White)
+	root, _, po := setup(widgets.Text{Text: "one"})
+	root.SetApp(widgets.Padding{Padding: geom.Insets(4), Child: widgets.Text{Text: "two"}}, geom.White)
 	view := po.Root().(*render.RenderView)
 	if _, ok := view.Child().(*render.RenderPadding); !ok {
 		t.Fatalf("root child = %T, want *RenderPadding", view.Child())
@@ -129,14 +130,14 @@ func TestSwapWidgetTypeReattachesRenderObject(t *testing.T) {
 }
 
 func TestDefaultTextStyleInheritance(t *testing.T) {
-	root, _, po := setup(DefaultTextStyle{Style: text.Style{Size: 30}, Child: Text{Text: "x"}})
+	root, _, po := setup(widgets.DefaultTextStyle{Style: text.Style{Size: 30}, Child: widgets.Text{Text: "x"}})
 	var ps []*render.RenderParagraph
 	findParagraphs(po.Root(), &ps)
 	po.FlushLayout(geom.Size{W: 400, H: 300})
 	if ps[0].Paragraph().Style.Size != 30 {
 		t.Fatalf("size %v", ps[0].Paragraph().Style.Size)
 	}
-	root.SetApp(DefaultTextStyle{Style: text.Style{Size: 10}, Child: Text{Text: "x"}}, geom.White)
+	root.SetApp(widgets.DefaultTextStyle{Style: text.Style{Size: 10}, Child: widgets.Text{Text: "x"}}, geom.White)
 	root.owner.FlushBuild() // Text is skipped by SetApp and rebuilt as a dependent
 	po.FlushLayout(geom.Size{W: 400, H: 300})
 	if ps[0].Paragraph().Style.Size != 10 {
@@ -145,10 +146,10 @@ func TestDefaultTextStyleInheritance(t *testing.T) {
 }
 
 func TestLayoutRowWithExpanded(t *testing.T) {
-	_, _, po := setup(Row{Children: []Widget{
-		SizedBox{Width: 100, Height: 20},
-		Expanded{Child: Container{Color: geom.Black}},
-		SizedBox{Width: 50, Height: 20},
+	_, _, po := setup(widgets.Row{Children: []widgets.Widget{
+		widgets.SizedBox{Width: 100, Height: 20},
+		widgets.Expanded{Child: widgets.Container{Color: geom.Black}},
+		widgets.SizedBox{Width: 50, Height: 20},
 	}})
 	flex := po.Root().(*render.RenderView).Child().(*render.RenderFlex)
 	kids := flex.Children()
@@ -162,9 +163,9 @@ func TestLayoutRowWithExpanded(t *testing.T) {
 }
 
 func TestPaintProducesCommands(t *testing.T) {
-	_, _, po := setup(Container{
+	_, _, po := setup(widgets.Container{
 		Color: geom.Hex(0x336699), Radius: 8, Padding: geom.Insets(10),
-		Child: Text{Text: "Hello"},
+		Child: widgets.Text{Text: "Hello"},
 	})
 	c := po.FlushPaint(geom.Size{W: 400, H: 300})
 	var rects, texts int
@@ -186,11 +187,11 @@ func TestPaintProducesCommands(t *testing.T) {
 
 func TestPostFromGoroutine(t *testing.T) {
 	scheduled := 0
-	bo := NewBuildOwner()
+	bo := widgets.NewBuildOwner()
 	bo.OnScheduleFrame = func() { scheduled++ }
 	po := render.NewPipelineOwner()
-	root := Mount(counter{Label: "p"}, geom.White, bo, po)
-	st := root.element.child.(*statefulElement).state.(*counterState)
+	root := widgets.Mount(counter{Label: "p"}, geom.White, bo, po)
+	st := root.element.child.(*widgets.statefulElement).state.(*counterState)
 	done := make(chan struct{})
 	go func() { st.Post(func() { st.n = 7 }); close(done) }()
 	<-done

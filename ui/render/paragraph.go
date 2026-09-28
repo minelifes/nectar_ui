@@ -1,8 +1,8 @@
 package render
 
 import (
-	"nectar_ui/ui/geom"
-	"nectar_ui/ui/text"
+	"github.com/minelifes/nectar_ui/ui/geom"
+	"github.com/minelifes/nectar_ui/ui/widgets/text"
 )
 
 // RenderParagraph lays out and paints a string.

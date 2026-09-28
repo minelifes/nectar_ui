@@ -10,21 +10,22 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	text2 "github.com/minelifes/nectar_ui/ui/widgets/text"
 	"reflect"
 
 	"github.com/gogpu/gputypes"
 	"github.com/gogpu/wgpu"
+	xvector "golang.org/x/image/vector"
 
-	"nectar_ui/ui/geom"
-	"nectar_ui/ui/render"
-	"nectar_ui/ui/text"
+	"github.com/minelifes/nectar_ui/ui/geom"
+	"github.com/minelifes/nectar_ui/ui/render"
 )
 
 // AtlasSize is the edge length of the glyph atlas texture.
 const AtlasSize = 1024
 
 const (
-	floatsPerVertex = 14 // pos2 uv2 color4 local2 params4
+	floatsPerVertex = 18 // pos2 uv2 color4 local2 params4 extra4
 	vertexStride    = floatsPerVertex * 4
 	uniformSize     = 16
 )
@@ -46,7 +47,7 @@ type Renderer struct {
 	vbuf      *wgpu.Buffer
 	ibuf      *wgpu.Buffer
 
-	atlas *text.Atlas
+	atlas *text2.Atlas
 
 	// CPU-side geometry, reused every frame.
 	verts   []float32
@@ -67,7 +68,7 @@ type batch struct {
 
 // New creates the renderer for surfaces of the given format.
 func New(dev *wgpu.Device, format gputypes.TextureFormat) (*Renderer, error) {
-	r := &Renderer{dev: dev, queue: dev.Queue(), format: format, atlas: text.NewAtlas(AtlasSize)}
+	r := &Renderer{dev: dev, queue: dev.Queue(), format: format, atlas: text2.NewAtlas(AtlasSize)}
 	r.whiteU, r.whiteV = r.atlas.WhiteUV()
 	r.atlasScale = 1 / float32(AtlasSize)
 	if err := r.init(); err != nil {
@@ -122,6 +123,7 @@ func (r *Renderer) init() error {
 					{Format: gputypes.VertexFormatFloat32x4, Offset: 16, ShaderLocation: 2}, // color
 					{Format: gputypes.VertexFormatFloat32x2, Offset: 32, ShaderLocation: 3}, // local
 					{Format: gputypes.VertexFormatFloat32x4, Offset: 40, ShaderLocation: 4}, // params
+					{Format: gputypes.VertexFormatFloat32x4, Offset: 56, ShaderLocation: 5}, // extra
 				},
 			}},
 		},
@@ -185,7 +187,7 @@ func (r *Renderer) init() error {
 }
 
 // Atlas exposes the glyph atlas (e.g. for debugging or preloading).
-func (r *Renderer) Atlas() *text.Atlas { return r.atlas }
+func (r *Renderer) Atlas() *text2.Atlas { return r.atlas }
 
 // Frame describes one frame to draw.
 type Frame struct {
@@ -348,6 +350,20 @@ func (r *Renderer) build(cmds []render.Command, strict bool) bool {
 			if !r.text(c.Text, c.Rect.Origin(), c.Color) && strict {
 				return false
 			}
+		case render.CmdShadow:
+			r.sdfQuad(c.Rect, c.Radius, c.Color, modeShadow, c.Blur*r.scale*2, [4]float32{c.Blur * r.scale})
+		case render.CmdStroke:
+			r.sdfQuad(c.Rect, c.Radius, c.Color, modeStroke, 1, [4]float32{0, c.Width * r.scale})
+		case render.CmdArc:
+			r.sdfQuad(c.Rect, c.Rect.W/2, c.Color, modeArc, 1, [4]float32{0, c.Width * r.scale, c.Start, c.Sweep})
+		case render.CmdRipple:
+			cx := (c.Center.X - (c.Rect.X + c.Rect.W/2)) * r.scale
+			cy := (c.Center.Y - (c.Rect.Y + c.Rect.H/2)) * r.scale
+			r.sdfQuad(c.Rect, c.Radius, c.Color, modeRipple, 1, [4]float32{cx, cy, c.Blur * r.scale})
+		case render.CmdIcon:
+			if !r.icon(c) && strict {
+				return false
+			}
 		}
 	}
 	if n := len(r.batches); n > 0 {
@@ -385,10 +401,11 @@ func clampU(v float64, hi uint32) uint32 {
 }
 
 // quad appends 4 vertices + 6 indices.
-func (r *Renderer) quad(x0, y0, x1, y1, u0, v0, u1, v1 float32, c geom.Color, local [4]float32, params [4]float32) {
+func (r *Renderer) quad(x0, y0, x1, y1, u0, v0, u1, v1 float32, c geom.Color, local, params, extra [4]float32) {
 	base := uint32(len(r.verts) / floatsPerVertex)
 	corner := func(x, y, u, v, lx, ly float32) {
-		r.verts = append(r.verts, x, y, u, v, c.R, c.G, c.B, c.A, lx, ly, params[0], params[1], params[2], params[3])
+		r.verts = append(r.verts, x, y, u, v, c.R, c.G, c.B, c.A, lx, ly,
+			params[0], params[1], params[2], params[3], extra[0], extra[1], extra[2], extra[3])
 	}
 	corner(x0, y0, u0, v0, local[0], local[1])
 	corner(x1, y0, u1, v0, local[2], local[1])
@@ -397,19 +414,65 @@ func (r *Renderer) quad(x0, y0, x1, y1, u0, v0, u1, v1 float32, c geom.Color, lo
 	r.indices = append(r.indices, base, base+1, base+2, base, base+2, base+3)
 }
 
+// Shader modes (params.w).
+const (
+	modeTexture = 0
+	modeFill    = 1
+	modeShadow  = 2
+	modeStroke  = 3
+	modeArc     = 4
+	modeRipple  = 5
+)
+
 func (r *Renderer) rect(rc geom.Rect, radius float32, c geom.Color) {
+	r.sdfQuad(rc, radius, c, modeFill, 1, [4]float32{})
+}
+
+// sdfQuad draws an analytic shape (rounded rect fill / shadow / stroke / arc)
+// covering rc grown by pad physical pixels.
+func (r *Renderer) sdfQuad(rc geom.Rect, radius float32, c geom.Color, mode int, pad float32, extra [4]float32) {
 	s := r.scale
 	x0, y0 := rc.X*s, rc.Y*s
 	w, h := rc.W*s, rc.H*s
 	hw, hh := w/2, h/2
-	// Grow the quad by 1px so the anti-aliased edge isn't cut off.
-	const pad = 1
 	local := [4]float32{-hw - pad, -hh - pad, hw + pad, hh + pad}
-	params := [4]float32{hw, hh, radius * s, 1}
-	r.quad(x0-pad, y0-pad, x0+w+pad, y0+h+pad, r.whiteU, r.whiteV, r.whiteU, r.whiteV, c, local, params)
+	params := [4]float32{hw, hh, radius * s, float32(mode)}
+	r.quad(x0-pad, y0-pad, x0+w+pad, y0+h+pad, r.whiteU, r.whiteV, r.whiteU, r.whiteV, c, local, params, extra)
 }
 
-func (r *Renderer) text(p *text.Paragraph, origin geom.Offset, c geom.Color) bool {
+// icon rasterizes (once per size) and draws a vector icon.
+func (r *Renderer) icon(c *render.Command) bool {
+	ic := c.Icon
+	path := ic.Path()
+	if path == nil {
+		return true
+	}
+	s := r.scale
+	px := float32(math.Round(float64(c.Rect.W * s)))
+	if px < 1 {
+		return true
+	}
+	x0 := float32(math.Round(float64(c.Rect.X * s)))
+	y0 := float32(math.Round(float64(c.Rect.Y * s)))
+	n := int(px)
+	key := text2.MaskKey{Kind: 1, ID: ic.ID(), Size: uint32(px * 64)}
+	e, ok := r.atlas.Mask(key, n, n, func(z *xvector.Rasterizer) {
+		path.Rasterize(z, px/ic.View, 0, 0)
+	})
+	if !ok {
+		return false
+	}
+	if e.Empty {
+		return true
+	}
+	inv := r.atlasScale
+	u0, v0 := float32(e.X)*inv, float32(e.Y)*inv
+	u1, v1 := float32(e.X+e.W)*inv, float32(e.Y+e.H)*inv
+	r.quad(x0, y0, x0+px, y0+px, u0, v0, u1, v1, c.Color, [4]float32{}, [4]float32{}, [4]float32{})
+	return true
+}
+
+func (r *Renderer) text(p *text2.Paragraph, origin geom.Offset, c geom.Color) bool {
 	if p == nil {
 		return true
 	}
@@ -421,7 +484,7 @@ func (r *Renderer) text(p *text.Paragraph, origin geom.Offset, c geom.Color) boo
 	for _, line := range p.Lines {
 		lx := (origin.X + line.X) * s
 		for _, g := range p.Glyphs[line.First:line.Last] {
-			penX, sub := text.SubpixelBin(lx + g.X*s)
+			penX, sub := text2.SubpixelBin(lx + g.X*s)
 			penY := float32(math.Round(float64((origin.Y + g.Y) * s)))
 			e, fits := r.atlas.Glyph(font, g.ID, sizePx, sub)
 			if !fits {
@@ -435,7 +498,7 @@ func (r *Renderer) text(p *text.Paragraph, origin geom.Offset, c geom.Color) boo
 			x1, y1 := x0+float32(e.W), y0+float32(e.H)
 			u0, v0 := float32(e.X)*inv, float32(e.Y)*inv
 			u1, v1 := float32(e.X+e.W)*inv, float32(e.Y+e.H)*inv
-			r.quad(x0, y0, x1, y1, u0, v0, u1, v1, c, [4]float32{}, [4]float32{})
+			r.quad(x0, y0, x1, y1, u0, v0, u1, v1, c, [4]float32{}, [4]float32{}, [4]float32{})
 		}
 	}
 	return ok

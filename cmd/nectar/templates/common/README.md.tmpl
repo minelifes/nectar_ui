@@ -1,0 +1,23 @@
+# [[.Title]]
+
+A [Nectar UI](https://[[.Engine]]) app.
+
+```sh
+CGO_ENABLED=0 go run .     # run
+go test ./...              # tests (headless, no window needed)
+CGO_ENABLED=0 go build     # build ./[[.Name]]
+```
+
+Update the engine with `go get [[.Engine]]@latest`.
+
+## Layout
+
+- `main.go`: opens the window and runs the root widget
+- `app.go`: the root widget (theme, app-wide state)
+- the rest: your pages and widgets
+
+Widgets come in three shapes, and a widget is whichever interface it implements:
+
+- `Build(ctx) Widget` for stateless composition
+- `CreateState()` for stateful widgets. Call `s.SetState(func(){…})` to rebuild.
+- `CreateRenderObject` / `UpdateRenderObject` for custom layout and paint

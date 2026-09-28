@@ -3,9 +3,10 @@ package widgets
 import (
 	"slices"
 	"sync"
+	"time"
 
-	"nectar_ui/ui/geom"
-	"nectar_ui/ui/render"
+	"github.com/minelifes/nectar_ui/ui/geom"
+	"github.com/minelifes/nectar_ui/ui/render"
 )
 
 // BuildOwner tracks dirty elements and rebuilds them once per frame.
@@ -14,10 +15,25 @@ type BuildOwner struct {
 	// called from any goroutine (via Post).
 	OnScheduleFrame func()
 
-	dirty []Element
+	// Now returns the frame time used by animations (default time.Now);
+	// tests can replace it to step animations deterministically.
+	Now func() time.Time
+
+	// Clipboard is used by text fields for copy/paste (set by the app).
+	Clipboard Clipboard
+
+	dirty   []Element
+	tickers map[*Ticker]struct{}
+	focus   *FocusManager
 
 	mu     sync.Mutex
 	posted []func()
+}
+
+// Clipboard reads and writes the system clipboard.
+type Clipboard interface {
+	ReadText() (string, error)
+	WriteText(string) error
 }
 
 // NewBuildOwner creates an owner.
@@ -53,6 +69,7 @@ func (o *BuildOwner) FlushBuild() {
 	for _, fn := range posted {
 		fn()
 	}
+	o.tick()
 
 	for len(o.dirty) > 0 {
 		batch := o.dirty

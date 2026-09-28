@@ -1,12 +1,13 @@
-package text
+package tests
 
 import (
+	text2 "github.com/minelifes/nectar_ui/ui/widgets/text"
 	"strings"
 	"testing"
 )
 
 func TestLayoutSingleLine(t *testing.T) {
-	p := Layout("Hello", Style{Size: 16}, Options{})
+	p := text2.Layout("Hello", text2.Style{Size: 16}, text2.Options{})
 	if len(p.Lines) != 1 || len(p.Glyphs) != 5 {
 		t.Fatalf("lines=%d glyphs=%d", len(p.Lines), len(p.Glyphs))
 	}
@@ -21,9 +22,9 @@ func TestLayoutSingleLine(t *testing.T) {
 }
 
 func TestLayoutWrapsAtSpaces(t *testing.T) {
-	style := Style{Size: 16}
-	one := Layout("word", style, Options{}).Width
-	p := Layout("word word word", style, Options{MaxWidth: one * 1.5})
+	style := text2.Style{Size: 16}
+	one := text2.Layout("word", style, text2.Options{}).Width
+	p := text2.Layout("word word word", style, text2.Options{MaxWidth: one * 1.5})
 	if len(p.Lines) != 3 {
 		t.Fatalf("want 3 lines, got %d", len(p.Lines))
 	}
@@ -38,7 +39,7 @@ func TestLayoutWrapsAtSpaces(t *testing.T) {
 }
 
 func TestLayoutHardBreaksAndEmptyLines(t *testing.T) {
-	p := Layout("a\n\nb", Style{}, Options{})
+	p := text2.Layout("a\n\nb", text2.Style{}, text2.Options{})
 	if len(p.Lines) != 3 {
 		t.Fatalf("want 3 lines, got %d", len(p.Lines))
 	}
@@ -48,18 +49,18 @@ func TestLayoutHardBreaksAndEmptyLines(t *testing.T) {
 }
 
 func TestLayoutLongWordBreaksMidWord(t *testing.T) {
-	style := Style{Size: 16}
-	w := Layout("abc", style, Options{}).Width
-	p := Layout(strings.Repeat("a", 30), style, Options{MaxWidth: w})
+	style := text2.Style{Size: 16}
+	w := text2.Layout("abc", style, text2.Options{}).Width
+	p := text2.Layout(strings.Repeat("a", 30), style, text2.Options{MaxWidth: w})
 	if len(p.Lines) < 5 {
 		t.Fatalf("expected char wrapping, got %d lines", len(p.Lines))
 	}
 }
 
 func TestLayoutEllipsis(t *testing.T) {
-	style := Style{Size: 16}
-	w := Layout("hello world", style, Options{}).Width
-	p := Layout("hello world and more text here", style, Options{MaxWidth: w, MaxLines: 1, Ellipsis: "…"})
+	style := text2.Style{Size: 16}
+	w := text2.Layout("hello world", style, text2.Options{}).Width
+	p := text2.Layout("hello world and more text here", style, text2.Options{MaxWidth: w, MaxLines: 1, Ellipsis: "…"})
 	if !p.Truncated || len(p.Lines) != 1 {
 		t.Fatalf("truncated=%v lines=%d", p.Truncated, len(p.Lines))
 	}
@@ -73,7 +74,7 @@ func TestLayoutEllipsis(t *testing.T) {
 }
 
 func TestCyrillic(t *testing.T) {
-	f := DefaultFont()
+	f := text2.DefaultFont()
 	for _, r := range "Привіт, світе! Їжак ґанок" {
 		if r != ' ' && r != ',' && r != '!' && !f.HasGlyph(r) {
 			t.Fatalf("default font missing %q", r)
@@ -82,8 +83,8 @@ func TestCyrillic(t *testing.T) {
 }
 
 func TestAtlasRasterizes(t *testing.T) {
-	a := NewAtlas(256)
-	f := DefaultFont()
+	a := text2.NewAtlas(256)
+	f := text2.DefaultFont()
 	a.TakeDirty()
 	e, ok := a.Glyph(f, f.Glyph('A'), 32, 0)
 	if !ok || e.Empty || e.W == 0 || e.H == 0 {
@@ -116,8 +117,8 @@ func TestAtlasRasterizes(t *testing.T) {
 }
 
 func TestAtlasFull(t *testing.T) {
-	a := NewAtlas(64)
-	f := DefaultFont()
+	a := text2.NewAtlas(64)
+	f := text2.DefaultFont()
 	full := false
 	for r := 'A'; r <= 'z'; r++ {
 		if _, ok := a.Glyph(f, f.Glyph(r), 40, 0); !ok {

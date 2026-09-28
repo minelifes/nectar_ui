@@ -1,0 +1,18 @@
+package main
+
+import (
+	"testing"
+
+	"[[.Engine]]/ui/tester"
+)
+
+func TestClick(t *testing.T) {
+	tt := tester.New(App{}, 720, 480)
+	if err := tt.TapText("Click me"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Pump()
+	if _, ok := tt.Find("Clicked once"); !ok {
+		t.Fatalf("got %v", tt.Texts())
+	}
+}

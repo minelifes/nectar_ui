@@ -1,7 +1,6 @@
-package tests
+package widgets
 
 import (
-	"github.com/minelifes/nectar_ui/ui/widgets"
 	"testing"
 
 	"github.com/minelifes/nectar_ui/ui/geom"
@@ -15,38 +14,38 @@ type theme struct{ Accent string }
 // reader depends on Provider[theme]; plain doesn't.
 type reader struct{ Name string }
 
-func (r reader) Build(ctx widgets.BuildContext) widgets.Widget {
+func (r reader) Build(ctx BuildContext) Widget {
 	builds[r.Name]++
-	t, _ := widgets.Of[theme](ctx)
-	return widgets.Text{Text: r.Name + ":" + t.Accent}
+	t, _ := Of[theme](ctx)
+	return Text{Text: r.Name + ":" + t.Accent}
 }
 
 type plain struct{ Name string }
 
-func (p plain) Build(widgets.BuildContext) widgets.Widget {
+func (p plain) Build(BuildContext) Widget {
 	builds[p.Name]++
-	return widgets.Text{Text: p.Name}
+	return Text{Text: p.Name}
 }
 
 type peeker struct{ Name string }
 
-func (p peeker) Build(ctx widgets.BuildContext) widgets.Widget {
+func (p peeker) Build(ctx BuildContext) Widget {
 	builds[p.Name]++
-	t, _ := widgets.Peek[theme](ctx)
-	return widgets.Text{Text: p.Name + ":" + t.Accent}
+	t, _ := Peek[theme](ctx)
+	return Text{Text: p.Name + ":" + t.Accent}
 }
 
-func themed(accent string) widgets.Widget {
-	return widgets.Provider[theme]{Value: theme{accent}, Child: widgets.Column{Children: []widgets.Widget{
+func themed(accent string) Widget {
+	return Provider[theme]{Value: theme{accent}, Child: Column{Children: []Widget{
 		reader{Name: "r"}, plain{Name: "p"}, peeker{Name: "k"},
 	}}}
 }
 
 func TestProviderRebuildsOnlyDependents(t *testing.T) {
 	clear(builds)
-	bo := widgets.NewBuildOwner()
+	bo := NewBuildOwner()
 	po := render.NewPipelineOwner()
-	root := widgets.Mount(themed("red"), geom.White, bo, po)
+	root := Mount(themed("red"), geom.White, bo, po)
 
 	// Column holds a slice, so it's re-updated; its children are equal
 	// comparable structs and are skipped unless they depend on the theme.
@@ -55,7 +54,7 @@ func TestProviderRebuildsOnlyDependents(t *testing.T) {
 	if builds["r"] != 2 || builds["p"] != 1 || builds["k"] != 1 {
 		t.Fatalf("builds = %v, want r:2 p:1 k:1", builds)
 	}
-	if got := widgets.paragraphs(po); got[0] != "r:blue" || got[2] != "k:red" {
+	if got := paragraphs(po); got[0] != "r:blue" || got[2] != "k:red" {
 		t.Fatalf("got %v", got)
 	}
 
@@ -68,18 +67,18 @@ func TestProviderRebuildsOnlyDependents(t *testing.T) {
 }
 
 func TestProviderShadowingAndMissing(t *testing.T) {
-	_, _, po := widgets.setup(widgets.Provider[theme]{Value: theme{"outer"}, Child: widgets.Column{Children: []widgets.Widget{
+	_, _, po := setup(Provider[theme]{Value: theme{"outer"}, Child: Column{Children: []Widget{
 		reader{Name: "a"},
-		widgets.Provider[theme]{Value: theme{"inner"}, Child: reader{Name: "b"}},
-		widgets.Provider[int]{Value: 7, Child: reader{Name: "c"}}, // different T doesn't shadow
+		Provider[theme]{Value: theme{"inner"}, Child: reader{Name: "b"}},
+		Provider[int]{Value: 7, Child: reader{Name: "c"}}, // different T doesn't shadow
 	}}})
-	got := widgets.paragraphs(po)
+	got := paragraphs(po)
 	if got[0] != "a:outer" || got[1] != "b:inner" || got[2] != "c:outer" {
 		t.Fatalf("got %v", got)
 	}
 
-	_, _, po = widgets.setup(reader{Name: "none"})
-	if got := widgets.paragraphs(po); got[0] != "none:" {
+	_, _, po = setup(reader{Name: "none"})
+	if got := paragraphs(po); got[0] != "none:" {
 		t.Fatalf("missing provider should give zero value, got %v", got)
 	}
 }
@@ -88,23 +87,23 @@ func TestProviderShadowingAndMissing(t *testing.T) {
 type locale struct {
 	Lang  string
 	Debug int // changes here don't matter to dependents
-	Child widgets.Widget
+	Child Widget
 }
 
-func (l locale) ChildWidget() widgets.Widget                { return l.Child }
-func (l locale) UpdateShouldNotify(old widgets.Widget) bool { return old.(locale).Lang != l.Lang }
+func (l locale) ChildWidget() Widget                { return l.Child }
+func (l locale) UpdateShouldNotify(old Widget) bool { return old.(locale).Lang != l.Lang }
 
 type greeter struct{}
 
-func (greeter) Build(ctx widgets.BuildContext) widgets.Widget {
+func (greeter) Build(ctx BuildContext) Widget {
 	builds["g"]++
-	l, _ := widgets.DependOn[locale](ctx)
-	return widgets.Text{Text: map[string]string{"en": "hello", "uk": "привіт"}[l.Lang]}
+	l, _ := DependOn[locale](ctx)
+	return Text{Text: map[string]string{"en": "hello", "uk": "привіт"}[l.Lang]}
 }
 
 func TestCustomInheritedWidget(t *testing.T) {
 	clear(builds)
-	root, bo, po := widgets.setup(locale{Lang: "en", Child: greeter{}})
+	root, bo, po := setup(locale{Lang: "en", Child: greeter{}})
 	root.SetApp(locale{Lang: "en", Debug: 1, Child: greeter{}}, geom.White)
 	bo.FlushBuild()
 	if builds["g"] != 1 {
@@ -112,7 +111,7 @@ func TestCustomInheritedWidget(t *testing.T) {
 	}
 	root.SetApp(locale{Lang: "uk", Child: greeter{}}, geom.White)
 	bo.FlushBuild()
-	if got := widgets.paragraphs(po); got[0] != "привіт" || builds["g"] != 2 {
+	if got := paragraphs(po); got[0] != "привіт" || builds["g"] != 2 {
 		t.Fatalf("got %v builds %d", got, builds["g"])
 	}
 }

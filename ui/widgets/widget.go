@@ -37,7 +37,8 @@ type StatefulWidget interface {
 
 // State is the mutable half of a StatefulWidget. Embed StateBase.
 //
-// Optional hooks: InitState(), DidUpdateWidget(old Widget), Dispose().
+// Optional hooks: InitState(), DidUpdateWidget(old Widget), Dispose(),
+// and Reassemble() (see Root.Reassemble).
 type State interface {
 	Build(ctx BuildContext) Widget
 	stateBase() *StateBase
@@ -219,4 +220,5 @@ type (
 	initStater      interface{ InitState() }
 	didUpdateWidget interface{ DidUpdateWidget(old Widget) }
 	disposer        interface{ Dispose() }
+	reassembler     interface{ Reassemble() }
 )

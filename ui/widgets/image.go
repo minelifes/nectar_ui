@@ -105,6 +105,10 @@ func (s *imageState) DidUpdateWidget(Widget) {
 	}
 }
 
+// Reassemble reloads the image: its file may have changed on disk (the
+// caller evicts it from the cache).
+func (s *imageState) Reassemble() { s.start() }
+
 func (s *imageState) Dispose() {
 	if s.cancel != nil {
 		s.cancel()

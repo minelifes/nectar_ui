@@ -28,6 +28,7 @@ type App struct {
 	input      *inputQueue
 	window     *nativeWindow
 	resources  *resources.Set
+	devStops   []func()
 	imeEnabled bool
 	imePos     [2]int
 }
@@ -60,6 +61,7 @@ func (a *App) Run(root widgets.Widget) error {
 		a.resources.Mount(m.prefix, m.fsys)
 	}
 	a.buildOwner.Resources = a.resources
+	a.setupDev()
 	// Window requests from widgets are applied here, on the main thread.
 	a.gpuApp.OnUpdate(func(float64) { a.window.apply() })
 
@@ -151,6 +153,7 @@ func (a *App) frame(dc *gogpu.Context) {
 }
 
 func (a *App) close() {
+	a.stopDev()
 	if a.root != nil {
 		a.root.Unmount()
 	}

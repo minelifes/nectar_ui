@@ -137,6 +137,25 @@ func (r *Root) SetApp(app Widget, background geom.Color) {
 	r.element.update(rootWidget{child: app, background: background})
 }
 
+// Reassemble rebuilds the whole tree, keeping every State (Flutter's
+// reassemble), for when something the builds read changed behind the
+// tree's back: resource files edited on disk, a reloaded config. States
+// with a Reassemble() method get it called first, to drop what they
+// cached (Image reloads its source). Call it on the UI goroutine.
+func (r *Root) Reassemble() {
+	var walk func(e Element)
+	walk = func(e Element) {
+		if se, ok := e.(*statefulElement); ok {
+			if s, ok := se.state.(reassembler); ok {
+				s.Reassemble()
+			}
+		}
+		e.base().markNeedsBuild()
+		e.visitChildren(walk)
+	}
+	walk(r.element)
+}
+
 // Context returns the root BuildContext.
 func (r *Root) Context() BuildContext { return r.element }
 

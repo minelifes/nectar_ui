@@ -19,7 +19,12 @@ type Config struct {
 	// instead; `nectar build` puts it there.
 	Icon image.Image
 
-	mounts []resourceMount
+	mounts    []resourceMount
+	devMounts []devMount
+}
+
+type devMount struct {
+	prefix, dir string
 }
 
 type resourceMount struct {
@@ -53,5 +58,20 @@ func (c Config) WithIcon(img image.Image) Config     { c.Icon = img; return c }
 //	cfg := ui.DefaultConfig().WithResources("", sub).WithResources("charts", chartFiles)
 func (c Config) WithResources(prefix string, fsys fs.FS) Config {
 	c.mounts = append(slices.Clip(c.mounts), resourceMount{prefix, fsys})
+	return c
+}
+
+// WithDevResources mounts the folder dir (relative to the working
+// directory) under prefix, but only while the app runs under `nectar dev`
+// (see package hotreload); otherwise it does nothing. The folder is read
+// from disk and watched: edit an image or any other file there and the
+// app shows the new version right away, without a restart. Pair it with
+// the embedded copy of the same folder, which release builds use:
+//
+//	cfg.WithResources("", assets.FS).WithDevResources("", "assets")
+//
+// It's mounted after (so it wins over) every WithResources mount.
+func (c Config) WithDevResources(prefix, dir string) Config {
+	c.devMounts = append(slices.Clip(c.devMounts), devMount{prefix, dir})
 	return c
 }

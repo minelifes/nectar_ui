@@ -1,0 +1,23 @@
+package app
+
+import (
+	"[[.Engine]]/ui/material/icons"
+	"[[.Engine]]/ui/vector"
+	w "[[.Engine]]/ui/widgets"
+
+	"[[.Module]]/internal/pages/home"
+	"[[.Module]]/internal/pages/settings"
+)
+
+// Route is a top-level destination in the navigation rail. Add a page:
+// create internal/pages/<name>, then add it here.
+type Route struct {
+	Label string
+	Icon  *vector.Icon
+	Page  func() w.Widget
+}
+
+var Routes = []Route{
+	{Label: "Home", Icon: icons.Home, Page: func() w.Widget { return home.Page{} }},
+	{Label: "Settings", Icon: icons.Settings, Page: func() w.Widget { return settings.Page{} }},
+}

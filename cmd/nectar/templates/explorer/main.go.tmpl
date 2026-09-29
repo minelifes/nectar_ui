@@ -1,25 +1,44 @@
 package main
 
 import (
+	"bytes"
+	"image"
+	"image/png"
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"[[.Engine]]/ui"
+
+	"[[.Module]]/assets"
+	"[[.Module]]/internal/app"
 )
 
-// Usage: [[.Name]] [folder]   (default: the current folder)
+// icon is the app icon (assets/icon.png, also used by `nectar build`) for
+// the running window (Linux; macOS and Windows take it from the .app /
+// .exe).
+func icon() image.Image {
+	data, _ := assets.FS.ReadFile("icon.png")
+	img, _ := png.Decode(bytes.NewReader(data))
+	return img
+}
+
+// Usage: [[.Name]] [folder]   (default: the current folder, or your home
+// folder when started from Finder / a desktop launcher)
 func main() {
 	root := "."
-	if len(os.Args) > 1 {
+	if len(os.Args) > 1 && !strings.HasPrefix(os.Args[1], "-psn_") {
 		root = os.Args[1]
+	} else if wd, _ := os.Getwd(); wd == "/" {
+		root, _ = os.UserHomeDir()
 	}
 	abs, err := filepath.Abs(root)
 	if err != nil {
 		log.Fatal(err)
 	}
-	app := ui.NewApp(ui.DefaultConfig().WithTitle([[printf "%q" .Title]] + " — " + abs).WithSize(1100, 720))
-	if err := app.Run(App{FS: os.DirFS(abs), Name: filepath.Base(abs)}); err != nil {
+	win := ui.NewApp(ui.DefaultConfig().WithTitle([[printf "%q" .Title]] + " — " + abs).WithSize(1100, 720).WithIcon(icon()))
+	if err := win.Run(app.App{FS: os.DirFS(abs), Name: filepath.Base(abs)}); err != nil {
 		log.Fatal(err)
 	}
 }

@@ -35,6 +35,8 @@ type Tester struct {
 	Size     geom.Size
 	Scale    float32
 	Clear    geom.Color
+	// Window is what widgets.WindowOf returns: SetSize changes Size.
+	Window *Window
 
 	disp      *render.PointerDispatcher
 	now       time.Time
@@ -59,6 +61,8 @@ func New(app widgets.Widget, w, h int) *Tester {
 	}
 	t.Build.Now = func() time.Time { return t.now }
 	t.Build.Clipboard = (*memClipboard)(t)
+	t.Window = &Window{t: t}
+	t.Build.Window = t.Window
 	t.Root = widgets.Mount(app, geom.Transparent, t.Build, t.Pipeline)
 	t.Pump()
 	return t

@@ -1,0 +1,21 @@
+// Package assets embeds the app's resources (images, fonts, data files)
+// into the binary and mounts them into the engine's resources, so widgets
+// can load them by name wherever the app is installed:
+//
+//	widgets.Image{Source: widgets.AssetImage{Name: "images/welcome.png"}}
+//	data, err := resources.ReadFile("images/welcome.png")
+//
+// Put files next to this one; list new top-level files or folders in the
+// go:embed line below.
+package assets
+
+import (
+	"embed"
+
+	"[[.Engine]]/ui/resources"
+)
+
+//go:embed icon.png images
+var FS embed.FS
+
+func init() { resources.Mount("", FS) }

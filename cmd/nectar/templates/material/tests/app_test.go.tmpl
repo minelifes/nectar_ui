@@ -1,0 +1,45 @@
+package tests
+
+import (
+	"testing"
+
+	"[[.Engine]]/ui/resources"
+	"[[.Engine]]/ui/tester"
+
+	"[[.Module]]/internal/app"
+	"[[.Module]]/internal/theme"
+)
+
+// The tester runs the app headless: tap, type, drag and find text.
+func TestCounterAndNavigation(t *testing.T) {
+	if !resources.Exists("images/welcome.png") {
+		t.Fatal("embedded assets not mounted")
+	}
+	tt := tester.New(app.New(), 1100, 720)
+	tt.Settle()
+	for range 2 {
+		if err := tt.TapText("Add"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tt.Settle()
+	if _, ok := tt.Find("Pressed 2 times"); !ok {
+		t.Fatalf("counter: %v", tt.Texts())
+	}
+
+	if err := tt.TapText("Settings"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Settle()
+	if _, ok := tt.Find("Dark mode"); !ok {
+		t.Fatalf("settings page: %v", tt.Texts())
+	}
+	// Switching dark mode and accent color goes through state.Update.
+	if err := tt.TapText("Dark mode"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.TapText(theme.Seeds[len(theme.Seeds)-1].Name); err != nil {
+		t.Fatal(err)
+	}
+	tt.Settle()
+}

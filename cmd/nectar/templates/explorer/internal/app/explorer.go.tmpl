@@ -1,7 +1,10 @@
-package main
+package app
 
 import (
+	"context"
+	"fmt"
 	"io/fs"
+	"path"
 	"strings"
 	"unicode/utf8"
 
@@ -26,6 +29,7 @@ type explorerState struct {
 	tree    *w.TreeController
 	path    string
 	preview string
+	image   w.ImageSource // set when the selection is a picture
 }
 
 func (s *explorerState) Build(ctx w.BuildContext) w.Widget {
@@ -41,10 +45,18 @@ func (s *explorerState) Build(ctx w.BuildContext) w.Widget {
 	if s.path != "" {
 		title = s.path
 	}
+	var body w.Widget = w.ScrollView{ThumbColor: sc.OnSurface.WithAlpha(0.3),
+		Child: w.Text{Text: s.preview, Style: m.Styled(th.Text.BodyMedium, sc.OnSurfaceVariant)}}
+	if s.image != nil {
+		body = w.Image{Source: s.image, Fit: w.FitScaleDown, Radius: 8,
+			Placeholder: w.Center{Child: m.CircularProgressIndicator{}},
+			Error: func(err error) w.Widget {
+				return w.Text{Text: err.Error(), Style: m.Styled(th.Text.BodyMedium, sc.Error)}
+			}}
+	}
 	preview := w.Column{Cross: w.CrossStretch, Spacing: 12, Children: []w.Widget{
 		w.Text{Text: title, Style: m.Styled(th.Text.TitleMedium, sc.OnSurface), MaxLines: 1, Ellipsis: true},
-		w.Expanded{Child: w.ScrollView{ThumbColor: sc.OnSurface.WithAlpha(0.3),
-			Child: w.Text{Text: s.preview, Style: m.Styled(th.Text.BodyMedium, sc.OnSurfaceVariant)}}},
+		w.Expanded{Child: body},
 	}}
 	return m.Scaffold{
 		AppBar: m.AppBar{Title: e.Name, Actions: []w.Widget{
@@ -66,13 +78,41 @@ func (s *explorerState) Build(ctx w.BuildContext) w.Widget {
 func (s *explorerState) show(p string, d fs.DirEntry) {
 	fsys := w.WidgetOf[Explorer](s).FS
 	s.SetState(func() {
-		s.path = p
-		s.preview = ""
-		if d != nil && !d.IsDir() {
+		s.path, s.preview, s.image = p, "", nil
+		switch {
+		case d == nil || d.IsDir():
+		case isImage(p):
+			s.image = fileImage{fsys, p}
+		default:
 			s.preview = previewFile(fsys, p)
 		}
 	})
 }
+
+func isImage(p string) bool {
+	switch strings.ToLower(path.Ext(p)) {
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff":
+		return true
+	}
+	return false
+}
+
+// fileImage is an image source reading from the browsed fs.FS (a custom
+// widgets.ImageSource: a cache key and a loader).
+type fileImage struct {
+	fsys fs.FS
+	path string
+}
+
+func (f fileImage) CacheKey() string {
+	key := "explorer:" + f.path
+	if st, err := fs.Stat(f.fsys, f.path); err == nil { // changed file → new key
+		key += fmt.Sprintf("@%d-%d", st.ModTime().UnixNano(), st.Size())
+	}
+	return key
+}
+
+func (f fileImage) Load(context.Context) ([]byte, error) { return fs.ReadFile(f.fsys, f.path) }
 
 // previewFile returns the start of a text file.
 func previewFile(fsys fs.FS, p string) string {

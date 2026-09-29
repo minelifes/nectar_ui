@@ -1,14 +1,29 @@
 package main
 
 import (
+	"bytes"
+	"image"
+	"image/png"
 	"log"
 
 	"[[.Engine]]/ui"
+
+	"[[.Module]]/assets"
+	"[[.Module]]/internal/app"
 )
 
+// icon is the app icon (assets/icon.png, also used by `nectar build`) for
+// the running window (Linux; macOS and Windows take it from the .app /
+// .exe).
+func icon() image.Image {
+	data, _ := assets.FS.ReadFile("icon.png")
+	img, _ := png.Decode(bytes.NewReader(data))
+	return img
+}
+
 func main() {
-	app := ui.NewApp(ui.DefaultConfig().WithTitle([[printf "%q" .Title]]).WithSize(960, 640))
-	if err := app.Run(App{}); err != nil {
+	cfg := ui.DefaultConfig().WithTitle(app.Title).WithSize(1100, 720).WithIcon(icon())
+	if err := ui.NewApp(cfg).Run(app.New()); err != nil {
 		log.Fatal(err)
 	}
 }

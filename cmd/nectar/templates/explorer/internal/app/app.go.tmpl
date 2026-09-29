@@ -1,10 +1,13 @@
-package main
+// Package app is the file explorer UI.
+package app
 
 import (
 	"io/fs"
 
 	m "[[.Engine]]/ui/material"
 	w "[[.Engine]]/ui/widgets"
+
+	_ "[[.Module]]/assets" // mounts the embedded resources
 )
 
 // App browses FS (a folder on disk in main, an in-memory FS in tests).

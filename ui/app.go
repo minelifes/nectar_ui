@@ -25,6 +25,7 @@ type App struct {
 	root       *widgets.Root
 	renderer   *gpu.Renderer
 	input      *inputQueue
+	window     *nativeWindow
 }
 
 // NewApp creates an application with the given config.
@@ -37,6 +38,9 @@ func (a *App) Run(root widgets.Widget) error {
 	cfg := gogpu.DefaultConfig().
 		WithTitle(a.config.Title).
 		WithSize(a.config.Width, a.config.Height)
+	if a.config.Icon != nil {
+		cfg = cfg.WithIcon(a.config.Icon)
+	}
 	a.gpuApp = gogpu.NewApp(cfg)
 
 	a.buildOwner = widgets.NewBuildOwner()
@@ -44,12 +48,26 @@ func (a *App) Run(root widgets.Widget) error {
 	a.buildOwner.OnScheduleFrame = a.gpuApp.RequestRedraw
 	a.pipeline.OnNeedVisualUpdate = a.gpuApp.RequestRedraw
 
+	a.window = newNativeWindow(a.gpuApp, a.config)
+	a.buildOwner.Window = a.window
+	// Window requests from widgets are applied here, on the main thread.
+	a.gpuApp.OnUpdate(func(float64) { a.window.apply() })
+
 	a.root = widgets.Mount(root, a.config.Background, a.buildOwner, a.pipeline)
 
 	a.setupInput()
 	a.gpuApp.OnDraw(a.frame)
 	a.gpuApp.OnClose(a.close)
 	return a.gpuApp.Run()
+}
+
+// Window controls the app's window (the same one widgets get from
+// widgets.WindowOf). Valid once Run has started.
+func (a *App) Window() widgets.Window {
+	if a.window == nil {
+		return nil
+	}
+	return a.window
 }
 
 // Post runs fn on the UI goroutine before the next frame. Safe to call from
@@ -88,6 +106,7 @@ func (a *App) frame(dc *gogpu.Context) {
 	}
 	// Logical size derived from the framebuffer so both always agree.
 	window := geom.Size{W: float32(fbW) / scale, H: float32(fbH) / scale}
+	a.window.resized(int(window.W+0.5), int(window.H+0.5))
 
 	// 0. input  1. build  2. layout  3. paint
 	a.processInput()

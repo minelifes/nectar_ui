@@ -5,6 +5,8 @@ package gpu
 //     the reserved white texel).
 //   - mode 1: analytic rounded rectangle via a signed distance field, which
 //     gives anti-aliased edges and corners with no textures or tessellation.
+//   - mode 6: image. Samples the group-1 texture (premultiplied) clipped to
+//     the rounded rect.
 //
 // Output is premultiplied alpha (blend: One, OneMinusSrcAlpha).
 const shaderWGSL = `
@@ -17,6 +19,8 @@ struct Uniforms {
 @group(0) @binding(0) var<uniform> u: Uniforms;
 @group(0) @binding(1) var atlas_tex: texture_2d<f32>;
 @group(0) @binding(2) var atlas_smp: sampler;
+@group(1) @binding(0) var image_tex: texture_2d<f32>;
+@group(1) @binding(1) var image_smp: sampler;
 
 struct VertexIn {
     @location(0) pos: vec2<f32>,
@@ -60,6 +64,7 @@ fn srgb_to_linear(c: vec3<f32>) -> vec3<f32> {
 fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     // Sample unconditionally (explicit LOD keeps it valid in any control flow).
     let texel = textureSampleLevel(atlas_tex, atlas_smp, in.uv, 0.0);
+    let img = textureSampleLevel(image_tex, image_smp, in.uv, 0.0);
     var coverage = texel.a;
     let mode = in.params.w;
     if (mode > 0.5) {
@@ -80,6 +85,9 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
             let w = in.extra.y;
             let dr = abs(d + w * 0.5) - w * 0.5;
             coverage = clamp(0.5 - dr, 0.0, 1.0);
+        } else if (mode > 5.5) {
+            // image: clip to the rounded rect; color comes from the texture
+            coverage = clamp(0.5 - d, 0.0, 1.0);
         } else if (mode > 4.5) {
             // ripple: circle (center extra.xy, radius extra.z) inside the rounded rect
             let inShape = clamp(0.5 - d, 0.0, 1.0);
@@ -105,10 +113,16 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         }
     }
     var rgb = in.color.rgb;
+    var alpha = in.color.a;
+    if (mode > 5.5) {
+        // Filtered premultiplied texel -> straight color (exact filtering).
+        rgb = img.rgb / max(img.a, 0.0001);
+        alpha = alpha * img.a;
+    }
     if (u.linear_out > 0.5) {
         rgb = srgb_to_linear(rgb);
     }
-    let a = in.color.a * coverage;
+    let a = alpha * coverage;
     return vec4<f32>(rgb * a, a);
 }
 `

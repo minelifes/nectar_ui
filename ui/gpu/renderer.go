@@ -49,12 +49,21 @@ type Renderer struct {
 
 	atlas *text2.Atlas
 
+	// Images: textures per render.Image (and pre-shrunk copies), group 1.
+	imageBGL   *wgpu.BindGroupLayout
+	imgLinear  *wgpu.Sampler
+	imgNearest *wgpu.Sampler
+	blankImage *imageTex
+	images     map[texKey]*imageTex
+	frame      uint64
+
 	// CPU-side geometry, reused every frame.
 	verts   []float32
 	indices []uint32
 	batches []batch
 
 	scale      float32
+	curImage   *wgpu.BindGroup
 	fbW, fbH   uint32
 	whiteU     float32
 	whiteV     float32
@@ -63,6 +72,7 @@ type Renderer struct {
 
 type batch struct {
 	scissor      gputypes.ScissorRect
+	image        *wgpu.BindGroup // group 1: the image texture (or the blank one)
 	first, count uint32
 }
 
@@ -100,7 +110,10 @@ func (r *Renderer) init() error {
 	if err != nil {
 		return fmt.Errorf("gpu: bind group layout: %w", err)
 	}
-	r.layout, err = r.dev.CreatePipelineLayout(&wgpu.PipelineLayoutDescriptor{Label: "nectar-ui", BindGroupLayouts: []*wgpu.BindGroupLayout{r.bgl}})
+	if err := r.initImages(); err != nil {
+		return err
+	}
+	r.layout, err = r.dev.CreatePipelineLayout(&wgpu.PipelineLayoutDescriptor{Label: "nectar-ui", BindGroupLayouts: []*wgpu.BindGroupLayout{r.bgl, r.imageBGL}})
 	if err != nil {
 		return fmt.Errorf("gpu: pipeline layout: %w", err)
 	}
@@ -206,6 +219,7 @@ func (r *Renderer) Draw(f Frame) error {
 		return nil
 	}
 	r.scale, r.fbW, r.fbH = max(f.Scale, 0.01), f.Width, f.Height
+	r.frame++
 
 	// Build geometry; if the atlas overflows mid-frame, reset it and rebuild
 	// once (glyphs that still don't fit are skipped).
@@ -215,6 +229,7 @@ func (r *Renderer) Draw(f Frame) error {
 		r.build(f.Commands, false)
 	}
 
+	r.evictImages()
 	if err := r.upload(); err != nil {
 		return err
 	}
@@ -239,9 +254,14 @@ func (r *Renderer) Draw(f Frame) error {
 		pass.SetBindGroup(0, r.bindGroup, nil)
 		pass.SetVertexBuffer(0, r.vbuf, 0)
 		pass.SetIndexBuffer(r.ibuf, gputypes.IndexFormatUint32, 0)
+		var bound *wgpu.BindGroup
 		for _, b := range r.batches {
 			if b.count == 0 || b.scissor.Width == 0 || b.scissor.Height == 0 {
 				continue
+			}
+			if b.image != bound {
+				pass.SetBindGroup(1, b.image, nil)
+				bound = b.image
 			}
 			pass.SetScissorRect(b.scissor)
 			pass.DrawIndexed(gputypes.DrawIndexedArgs{IndexCount: b.count, InstanceCount: 1, FirstIndex: b.first})
@@ -340,6 +360,7 @@ func (r *Renderer) build(cmds []render.Command, strict bool) bool {
 	r.verts = r.verts[:0]
 	r.indices = r.indices[:0]
 	r.batches = r.batches[:0]
+	r.curImage = r.blankImage.linear
 	for i := range cmds {
 		c := &cmds[i]
 		r.setScissor(c.Clip)
@@ -364,6 +385,8 @@ func (r *Renderer) build(cmds []render.Command, strict bool) bool {
 			if !r.icon(c) && strict {
 				return false
 			}
+		case render.CmdImage:
+			r.drawImage(c)
 		}
 	}
 	if n := len(r.batches); n > 0 {
@@ -380,14 +403,33 @@ func (r *Renderer) setScissor(clip geom.Rect) {
 	x1 := clampU(math.Ceil(float64(clip.Right()*s)), r.fbW)
 	y1 := clampU(math.Ceil(float64(clip.Bottom()*s)), r.fbH)
 	sc := gputypes.ScissorRect{X: x0, Y: y0, Width: x1 - x0, Height: y1 - y0}
+	r.setBatch(sc, r.curImage)
+}
+
+// setImage switches the image texture for the following quads. Other
+// commands keep whatever is bound (they don't sample it), so only images
+// split batches.
+func (r *Renderer) setImage(bg *wgpu.BindGroup) {
+	r.curImage = bg
+	if n := len(r.batches); n > 0 {
+		r.setBatch(r.batches[n-1].scissor, bg)
+	}
+}
+
+// setBatch starts a new batch unless the current one has the same state.
+func (r *Renderer) setBatch(sc gputypes.ScissorRect, image *wgpu.BindGroup) {
 	if n := len(r.batches); n > 0 {
 		b := &r.batches[n-1]
-		if b.scissor == sc {
+		if b.scissor == sc && b.image == image {
 			return
 		}
 		b.count = uint32(len(r.indices)) - b.first
+		if b.count == 0 { // nothing drawn yet: just retarget it
+			b.scissor, b.image = sc, image
+			return
+		}
 	}
-	r.batches = append(r.batches, batch{scissor: sc, first: uint32(len(r.indices))})
+	r.batches = append(r.batches, batch{scissor: sc, image: image, first: uint32(len(r.indices))})
 }
 
 func clampU(v float64, hi uint32) uint32 {
@@ -422,6 +464,7 @@ const (
 	modeStroke  = 3
 	modeArc     = 4
 	modeRipple  = 5
+	modeImage   = 6
 )
 
 func (r *Renderer) rect(rc geom.Rect, radius float32, c geom.Color) {
@@ -506,9 +549,18 @@ func (r *Renderer) text(p *text2.Paragraph, origin geom.Offset, c geom.Color) bo
 
 // Release frees all GPU resources.
 func (r *Renderer) Release() {
+	for id, t := range r.images {
+		t.release()
+		delete(r.images, id)
+	}
+	if r.blankImage != nil {
+		r.blankImage.release()
+		r.blankImage = nil
+	}
 	for _, res := range []interface{ Release() }{
 		r.bindGroup, r.pipeline, r.layout, r.bgl, r.sampler,
 		r.atlasView, r.atlasTex, r.uniforms, r.vbuf, r.ibuf,
+		r.imgLinear, r.imgNearest, r.imageBGL,
 	} {
 		if res != nil && !reflect.ValueOf(res).IsNil() {
 			res.Release()

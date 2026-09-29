@@ -1,0 +1,68 @@
+# [[.Title]]
+
+A [Nectar UI](https://[[.Engine]]) app.
+
+```sh
+CGO_ENABLED=0 go run .     # run
+go test ./...              # tests (headless, no window needed)
+CGO_ENABLED=0 go build     # build ./[[.Name]]
+```
+
+Update the engine with `go get [[.Engine]]@latest && go mod tidy`.
+
+## Build the desktop app
+
+```sh
+nectar build                              # this OS (macOS: universal .app)
+nectar build -os windows -arch amd64      # cross-build a Windows .exe
+nectar build -os linux -arch arm64
+```
+
+Results go to `dist/`:
+
+| OS | You get |
+|---|---|
+| macOS | `dist/[[.Title]].app`: Info.plist, `.icns` icon, universal binary (arm64 + amd64), ad-hoc signed |
+| Windows | `dist/[[.Exe]].exe`: icon, DPI-aware manifest, and no console window (`-console` keeps it) |
+| Linux | `dist/[[.Exe]]-linux-<arch>/`: binary, `.png` icon, `.desktop` entry, `install.sh` |
+
+- **App name, id, version and icon:** set in `nectar.json`.
+- **Changing the icon:** replace `assets/icon.png` with your own square PNG (1024×1024 is best). `nectar icon -seed "#0B57D0"` regenerates the default one.
+- **Distributing on macOS:** sign with your Developer ID and notarize. The ad-hoc signature only works on your own Mac.
+
+## Structure
+
+```
+main.go                      opens the window, runs app.New()
+nectar.json                  app name, id, version, icon (for nectar build)
+assets/                      embedded resources, mounted into ui/resources
+├── assets.go                go:embed list (add new top-level folders here)
+├── icon.png                 app icon, 1024×1024
+└── images/welcome.png       read with widgets.AssetImage{Name: "images/welcome.png"}
+internal/
+├── app/                     root widget, navigation shell, routes
+│   ├── app.go               theme + state wiring
+│   ├── shell.go             app bar + navigation rail
+│   └── routes.go            top-level pages (add yours here)
+├── theme/                   the look: seed color, light/dark themes, type tweaks
+│   ├── theme.go
+│   └── tokens.go            spacing and radius tokens
+├── state/                   app-wide state (Settings) shared via Provider
+├── components/              reusable widgets (Page layout, Section card)
+└── pages/
+    ├── home/
+    └── settings/
+tests/                       headless UI tests (tap, type, find text)
+```
+
+- **Change the brand color:** `theme.Seed` in `internal/theme/theme.go`. All M3 color roles are generated from it, for both light and dark.
+- **Add a page:**
+  1. Create `internal/pages/<name>/<name>.go` with a `Page` widget.
+  2. Add a `Route` for it in `internal/app/routes.go`.
+- **Share state:** add fields to `state.Settings` (keep the struct comparable). Read them with `state.Of(ctx)` and change them with `state.Update(ctx, func(s *state.Settings){…})`.
+
+Widgets come in three shapes, and a widget is whichever interface it implements:
+
+- `Build(ctx) Widget` for stateless composition
+- `CreateState()` for stateful widgets. Call `s.SetState(func(){…})` to rebuild.
+- `CreateRenderObject` / `UpdateRenderObject` for custom layout and paint

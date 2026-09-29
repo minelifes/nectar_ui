@@ -1,0 +1,44 @@
+// Package state holds app-wide state shared through the widget tree.
+package state
+
+import (
+	"[[.Engine]]/ui/geom"
+	w "[[.Engine]]/ui/widgets"
+)
+
+// Settings are the user's preferences. Keep the struct comparable (no
+// slices, maps or funcs): widgets reading it rebuild only when it changes.
+type Settings struct {
+	Dark bool
+	Seed geom.Color
+}
+
+// Store applies changes to the settings; the app root owns it.
+type Store struct{ update func(func(*Settings)) }
+
+// NewStore makes a store that applies changes with update (typically a
+// SetState on the root widget).
+func NewStore(update func(func(*Settings))) *Store { return &Store{update: update} }
+
+// Scope provides Settings and their Store to everything below it.
+type Scope struct {
+	Value Settings
+	Store *Store
+	Child w.Widget
+}
+
+func (s Scope) Build(w.BuildContext) w.Widget {
+	return w.Provider[*Store]{Value: s.Store, Child: w.Provider[Settings]{Value: s.Value, Child: s.Child}}
+}
+
+// Of returns the current settings; ctx rebuilds when they change.
+func Of(ctx w.BuildContext) Settings { return w.MustOf[Settings](ctx) }
+
+// Update changes the settings from anywhere below the Scope:
+//
+//	state.Update(ctx, func(s *state.Settings) { s.Dark = true })
+func Update(ctx w.BuildContext, f func(*Settings)) {
+	if st, ok := w.Peek[*Store](ctx); ok {
+		st.update(f)
+	}
+}

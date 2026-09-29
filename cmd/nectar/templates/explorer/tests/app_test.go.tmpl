@@ -1,0 +1,57 @@
+package tests
+
+import (
+	"bytes"
+	"image"
+	"image/png"
+	"testing"
+	"testing/fstest"
+	"time"
+
+	"[[.Engine]]/ui/tester"
+
+	"[[.Module]]/internal/app"
+)
+
+func TestPreview(t *testing.T) {
+	fsys := fstest.MapFS{
+		"docs/hello.txt": {Data: []byte("Hello from the preview")},
+		"main.go":        {Data: []byte("package main")},
+		"pics/dot.png":   {Data: dotPNG()},
+	}
+	tt := tester.New(app.App{FS: fsys, Name: "demo"}, 1100, 720)
+	tt.Settle()
+	if err := tt.TapText("docs"); err != nil { // expands the folder
+		t.Fatal(err)
+	}
+	tt.Advance(time.Second) // so the next click isn't a double-click
+	if err := tt.TapText("hello.txt"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Settle()
+	if _, ok := tt.Find("Hello from the preview"); !ok {
+		t.Fatalf("no preview: %v", tt.Texts())
+	}
+	// Pictures are previewed as images.
+	tt.Advance(time.Second)
+	if err := tt.TapText("pics"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(time.Second)
+	if err := tt.TapText("dot.png"); err != nil {
+		t.Fatal(err)
+	}
+	if !tt.PumpUntil(func() bool { _, title := tt.Find("pics/dot.png"); _, text := tt.Find("Hello from the preview"); return title && !text }, 2*time.Second) {
+		t.Fatalf("image preview: %v", tt.Texts())
+	}
+}
+
+func dotPNG() []byte {
+	img := image.NewNRGBA(image.Rect(0, 0, 4, 4))
+	for i := range img.Pix {
+		img.Pix[i] = 0xFF
+	}
+	var b bytes.Buffer
+	png.Encode(&b, img)
+	return b.Bytes()
+}

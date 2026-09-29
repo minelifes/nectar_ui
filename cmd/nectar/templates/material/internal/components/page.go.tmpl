@@ -1,0 +1,49 @@
+// Package components holds reusable widgets shared by the pages.
+package components
+
+import (
+	"[[.Engine]]/ui/geom"
+	m "[[.Engine]]/ui/material"
+	w "[[.Engine]]/ui/widgets"
+
+	"[[.Module]]/internal/theme"
+)
+
+// Page is the standard page layout: a scrolling column with a headline,
+// an optional subtitle and the content.
+type Page struct {
+	Title    string
+	Subtitle string
+	Children []w.Widget
+}
+
+func (p Page) Build(ctx w.BuildContext) w.Widget {
+	th := m.ThemeOf(ctx)
+	sc := th.Scheme
+	head := []w.Widget{w.Text{Text: p.Title, Style: m.Styled(th.Text.HeadlineMedium, sc.OnSurface)}}
+	if p.Subtitle != "" {
+		head = append(head, w.Text{Text: p.Subtitle, Style: m.Styled(th.Text.BodyLarge, sc.OnSurfaceVariant)})
+	}
+	kids := append([]w.Widget{w.Column{Cross: w.CrossStart, ShrinkMain: true, Spacing: theme.SpaceXS, Children: head}}, p.Children...)
+	return w.ListView{
+		Padding:    geom.InsetsLTRB(theme.SpaceL, theme.SpaceS, theme.SpaceL, theme.SpaceXL),
+		Spacing:    theme.SpaceM,
+		ThumbColor: sc.OnSurfaceVariant.WithAlpha(0.4),
+		Children:   kids,
+	}
+}
+
+// Section is a titled, outlined card grouping related content.
+type Section struct {
+	Title string
+	Child w.Widget
+}
+
+func (s Section) Build(ctx w.BuildContext) w.Widget {
+	th := m.ThemeOf(ctx)
+	return m.Card{Variant: m.CardOutlined, Padding: geom.Insets(theme.SpaceM), Child: w.Column{
+		Cross: w.CrossStretch, ShrinkMain: true, Spacing: theme.SpaceM, Children: []w.Widget{
+			w.Text{Text: s.Title, Style: m.Styled(th.Text.TitleMedium, th.Scheme.OnSurface)},
+			s.Child,
+		}}}
+}

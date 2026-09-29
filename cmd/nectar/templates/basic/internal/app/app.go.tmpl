@@ -1,4 +1,5 @@
-package main
+// Package app holds the app's widgets.
+package app
 
 import (
 	"fmt"
@@ -6,6 +7,8 @@ import (
 	"[[.Engine]]/ui/geom"
 	w "[[.Engine]]/ui/widgets"
 	"[[.Engine]]/ui/widgets/text"
+
+	_ "[[.Module]]/assets" // mounts the embedded resources
 )
 
 var (
@@ -20,6 +23,9 @@ var (
 // package; add "[[.Engine]]/ui/material" for Material 3 components.
 type App struct{}
 
+// New returns the root widget.
+func New() w.Widget { return App{} }
+
 func (App) CreateState() w.State { return &appState{} }
 
 type appState struct {
@@ -29,6 +35,7 @@ type appState struct {
 
 func (s *appState) Build(w.BuildContext) w.Widget {
 	return w.Center{Child: w.Column{ShrinkMain: true, Cross: w.CrossCenter, Spacing: 16, Children: []w.Widget{
+		w.Image{Source: w.AssetImage{Name: "icon.png"}, Width: 96}, // from assets/
 		w.Text{Text: [[printf "%q" .Title]], Style: text.Style{Size: 28, Color: ink}},
 		w.Text{Text: clicks(s.count), Style: text.Style{Size: 16, Color: muted}},
 		Button{Label: "Click me", OnPressed: func() { s.SetState(func() { s.count++ }) }},

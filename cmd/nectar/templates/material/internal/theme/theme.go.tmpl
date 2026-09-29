@@ -1,0 +1,61 @@
+// Package theme is the app's look: brand color, light/dark Material 3
+// themes, typography tweaks and layout tokens. Change it here and every
+// page follows.
+package theme
+
+import (
+	"[[.Engine]]/ui/geom"
+	m "[[.Engine]]/ui/material"
+)
+
+// Seed is the brand color. The whole M3 palette (primary, secondary,
+// tertiary, surfaces, …) is generated from it, for light and dark.
+var Seed = geom.Hex([[.Seed]])
+
+// NamedColor is a selectable seed on the settings page.
+type NamedColor struct {
+	Name  string
+	Color geom.Color
+}
+
+// Seeds are the accent colors users can pick on the settings page: the
+// brand color first, then presets (minus any equal to the brand color).
+var Seeds = withBrand(Seed, []NamedColor{
+	{"Blue", geom.Hex(0x0B57D0)},
+	{"Teal", geom.Hex(0x006A6A)},
+	{"Green", geom.Hex(0x386A20)},
+	{"Orange", geom.Hex(0x8B5000)},
+	{"Rose", geom.Hex(0xB3261E)},
+})
+
+func withBrand(brand geom.Color, presets []NamedColor) []NamedColor {
+	out := []NamedColor{{"Brand", brand}}
+	for _, p := range presets {
+		if p.Color != brand {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// Light returns the light theme for seed.
+func Light(seed geom.Color) m.Theme { return build(seed, false) }
+
+// Dark returns the dark theme for seed.
+func Dark(seed geom.Color) m.Theme { return build(seed, true) }
+
+func build(seed geom.Color, dark bool) m.Theme {
+	t := m.NewTheme(seed, dark)
+
+	// Customize the generated theme here. Colors: any role of the M3
+	// scheme, e.g.
+	//
+	//	t.Scheme.Tertiary = geom.Hex(0x7D5260)
+	//	t.Scheme.Surface = geom.Hex(0xFFFBFE)
+	//
+	// Typography: every style of the M3 type scale (Display…Label), e.g.
+	// a bigger, tighter headline for page titles:
+	t.Text.HeadlineMedium.Size = 30
+	t.Text.HeadlineMedium.LetterSpacing = -0.25
+	return t
+}

@@ -1,0 +1,42 @@
+package app
+
+import (
+	m "[[.Engine]]/ui/material"
+	"[[.Engine]]/ui/material/icons"
+	w "[[.Engine]]/ui/widgets"
+
+	"[[.Module]]/internal/state"
+)
+
+// Shell is the frame around the pages: app bar and navigation rail.
+type Shell struct{}
+
+func (Shell) CreateState() w.State { return &shellState{} }
+
+type shellState struct {
+	w.StateBase
+	page int
+}
+
+func (s *shellState) Build(ctx w.BuildContext) w.Widget {
+	st := state.Of(ctx)
+	dests := make([]m.NavigationDestination, len(Routes))
+	for i, r := range Routes {
+		dests[i] = m.NavigationDestination{Icon: r.Icon, Label: r.Label}
+	}
+	themeIcon := icons.DarkMode
+	if st.Dark {
+		themeIcon = icons.LightMode
+	}
+	return m.Scaffold{
+		AppBar: m.AppBar{Title: Title, Actions: []w.Widget{
+			m.Tooltip{Message: "Toggle dark mode", Child: m.IconButton{Icon: themeIcon, OnPressed: func() {
+				state.Update(ctx, func(s *state.Settings) { s.Dark = !s.Dark })
+			}}},
+		}},
+		Rail: m.NavigationRail{Destinations: dests, Selected: s.page,
+			OnSelected: func(i int) { s.SetState(func() { s.page = i }) }},
+		// KeyedSubtree gives each page fresh state when switching.
+		Body: w.KeyedSubtree{ID: s.page, Child: Routes[s.page].Page()},
+	}
+}

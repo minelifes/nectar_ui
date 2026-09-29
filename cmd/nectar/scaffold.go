@@ -36,8 +36,8 @@ type Template struct {
 // Templates lists the app templates (folders under templates/, plus the
 // shared files in templates/common).
 var Templates = []Template{
-	{"material", "Material 3 app: theme, dark mode, app bar, FAB counter page and a test (default)"},
-	{"basic", "plain widgets, no Material: a minimal counter to build your own look from"},
+	{"material", "structured Material 3 app: internal/{app,theme,state,components,pages}, light/dark theme, navigation rail, settings page, tests (default)"},
+	{"basic", "core widgets only, no Material: a counter with a custom button, to build your own look from"},
 	{"explorer", "Material file browser: split view with a file tree and a file preview"},
 }
 
@@ -57,6 +57,7 @@ type Options struct {
 	Title    string // window title; default: from folder name
 	Version  string // engine version for go get; default: latest
 	Local    string // engine checkout to use via a replace directive
+	Seed     string // brand color "#RRGGBB" for the theme; default M3 baseline purple
 	NoTidy   bool   // skip go get / go mod tidy
 	Git      bool   // git init
 	Force    bool   // allow a non-empty folder
@@ -69,6 +70,9 @@ type data struct {
 	Module string
 	Title  string
 	Engine string // engine import path
+	Seed   string // brand color as a Go literal, e.g. 0x6750A4
+	Exe    string // binary name
+	ID     string // reverse-DNS bundle id
 }
 
 var modulePathRE = regexp.MustCompile(`^[A-Za-z0-9._~\-]+(/[A-Za-z0-9._~\-]+)*$`)
@@ -104,14 +108,41 @@ func Generate(o Options) error {
 	if err := checkDir(dir, o.Force); err != nil {
 		return err
 	}
-	d := data{Name: name, Module: o.Module, Title: o.Title, Engine: EnginePath}
+	seed, err := parseSeed(o.Seed)
+	if err != nil {
+		return err
+	}
+	d := data{Name: name, Module: o.Module, Title: o.Title, Engine: EnginePath, Seed: seed,
+		Exe: exeName(name), ID: bundleID(o.Module)}
 
 	fmt.Fprintf(o.Out, "Creating %s (%s template) in %s\n", o.Module, o.Template, dir)
-	for _, src := range []string{"templates/common", "templates/" + o.Template} {
-		if err := render(src, dir, d, o.Out); err != nil {
-			return err
+	// Template files win over common ones with the same name.
+	own := map[string]bool{}
+	fs.WalkDir(templateFS, "templates/"+o.Template, func(p string, e fs.DirEntry, err error) error {
+		if err == nil && !e.IsDir() {
+			own[strings.TrimPrefix(p, "templates/"+o.Template+"/")] = true
 		}
+		return nil
+	})
+	if err := render("templates/common", dir, d, o.Out, own); err != nil {
+		return err
 	}
+	if err := render("templates/"+o.Template, dir, d, o.Out, nil); err != nil {
+		return err
+	}
+	var seedRGB uint32
+	fmt.Sscanf(seed, "0x%X", &seedRGB)
+	if err := os.MkdirAll(filepath.Join(dir, "assets", "images"), 0o755); err != nil {
+		return err
+	}
+	if err := writeIconPNG(filepath.Join(dir, "assets", "icon.png"), defaultIcon(seedRGB, o.Title)); err != nil {
+		return err
+	}
+	fmt.Fprintln(o.Out, "  create assets/icon.png")
+	if err := writeIconPNG(filepath.Join(dir, "assets", "images", "welcome.png"), welcomeImage(seedRGB, 1200, 480)); err != nil {
+		return err
+	}
+	fmt.Fprintln(o.Out, "  create assets/images/welcome.png")
 	if err := writeGoMod(dir, o); err != nil {
 		return err
 	}
@@ -136,11 +167,25 @@ func Generate(o Options) error {
 		}
 	}
 	rel := o.Dir
-	fmt.Fprintf(o.Out, "\nDone. Next:\n\n  cd %s\n  CGO_ENABLED=0 go run .\n  go test ./...\n\n", rel)
+	fmt.Fprintf(o.Out, "\nDone. Next:\n\n  cd %s\n  CGO_ENABLED=0 go run .     # run\n  go test ./...              # test\n  nectar build               # package as a desktop app with its icon\n\n", rel)
 	if o.NoTidy {
 		fmt.Fprintln(o.Out, "Run `go mod tidy` first to fetch the engine (skipped with -no-tidy).")
 	}
 	return nil
+}
+
+var hexColorRE = regexp.MustCompile(`^[0-9A-Fa-f]{6}$`)
+
+// parseSeed turns "#0B57D0", "0x0B57D0" or "0B57D0" into "0x0B57D0".
+func parseSeed(s string) (string, error) {
+	if s == "" {
+		return "0x6750A4", nil
+	}
+	h := strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(s, "#"), "0x"), "0X")
+	if !hexColorRE.MatchString(h) {
+		return "", fmt.Errorf("invalid -seed %q: want a hex color like #0B57D0", s)
+	}
+	return "0x" + strings.ToUpper(h), nil
 }
 
 func knownTemplate(n string) bool {
@@ -168,12 +213,15 @@ func checkDir(dir string, force bool) error {
 
 // render executes every *.tmpl under src into dir. A leading "_" in a
 // file name becomes "." (embed skips dotfiles), and .go files are gofmt'ed.
-func render(src, dir string, d data, out io.Writer) error {
+func render(src, dir string, d data, out io.Writer, skip map[string]bool) error {
 	return fs.WalkDir(templateFS, src, func(p string, e fs.DirEntry, err error) error {
 		if err != nil || e.IsDir() {
 			return err
 		}
 		rel := strings.TrimPrefix(p, src+"/")
+		if skip[rel] {
+			return nil
+		}
 		rel = strings.TrimSuffix(rel, ".tmpl")
 		if base := path.Base(rel); strings.HasPrefix(base, "_") {
 			rel = path.Join(path.Dir(rel), "."+base[1:])

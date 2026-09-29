@@ -1,13 +1,15 @@
-package main
+package tests
 
 import (
 	"testing"
 
 	"[[.Engine]]/ui/tester"
+
+	"[[.Module]]/internal/app"
 )
 
 func TestClick(t *testing.T) {
-	tt := tester.New(App{}, 720, 480)
+	tt := tester.New(app.New(), 720, 480)
 	if err := tt.TapText("Click me"); err != nil {
 		t.Fatal(err)
 	}

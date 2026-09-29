@@ -22,6 +22,10 @@ type BuildOwner struct {
 	// Clipboard is used by text fields for copy/paste (set by the app).
 	Clipboard Clipboard
 
+	// Window is the native window hosting the tree (set by the app and
+	// the tester); read it with WindowOf(ctx).
+	Window Window
+
 	dirty   []Element
 	tickers map[*Ticker]struct{}
 	focus   *FocusManager

@@ -1,0 +1,53 @@
+// Package app is the root of the app: theme, shared state and the
+// navigation shell.
+package app
+
+import (
+	"[[.Engine]]/ui/geom"
+	m "[[.Engine]]/ui/material"
+	w "[[.Engine]]/ui/widgets"
+
+	_ "[[.Module]]/assets" // mounts the embedded resources
+	"[[.Module]]/internal/state"
+	"[[.Module]]/internal/theme"
+)
+
+// Title is the window and app bar title.
+const Title = [[printf "%q" .Title]]
+
+// New returns the root widget with default settings.
+func New() w.Widget { return App{} }
+
+// App is the root widget. Initial overrides the starting settings (zero
+// Seed = theme.Seed).
+type App struct {
+	Initial state.Settings
+}
+
+func (App) CreateState() w.State { return &appState{} }
+
+type appState struct {
+	w.StateBase
+	settings state.Settings
+	store    *state.Store
+}
+
+func (s *appState) InitState() {
+	s.settings = w.WidgetOf[App](s).Initial
+	if s.settings.Seed == (geom.Color{}) {
+		s.settings.Seed = theme.Seed
+	}
+	s.store = state.NewStore(func(f func(*state.Settings)) {
+		s.SetState(func() { f(&s.settings) })
+	})
+}
+
+func (s *appState) Build(w.BuildContext) w.Widget {
+	dark := theme.Dark(s.settings.Seed)
+	return state.Scope{Value: s.settings, Store: s.store, Child: m.App{
+		Theme:     theme.Light(s.settings.Seed),
+		DarkTheme: &dark,
+		Dark:      s.settings.Dark,
+		Home:      Shell{},
+	}}
+}

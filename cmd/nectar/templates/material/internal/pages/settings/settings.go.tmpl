@@ -1,0 +1,37 @@
+// Package settings is the settings page.
+package settings
+
+import (
+	m "[[.Engine]]/ui/material"
+	"[[.Engine]]/ui/material/icons"
+	w "[[.Engine]]/ui/widgets"
+
+	"[[.Module]]/internal/components"
+	"[[.Module]]/internal/state"
+	"[[.Module]]/internal/theme"
+)
+
+// Page lets the user switch dark mode and the accent color.
+type Page struct{}
+
+func (Page) Build(ctx w.BuildContext) w.Widget {
+	st := state.Of(ctx)
+	chips := make([]w.Widget, len(theme.Seeds))
+	for i, c := range theme.Seeds {
+		chips[i] = m.ChoiceChip{Label: c.Name, Selected: st.Seed == c.Color, OnSelected: func() {
+			state.Update(ctx, func(s *state.Settings) { s.Seed = c.Color })
+		}}
+	}
+	return components.Page{
+		Title: "Settings",
+		Children: []w.Widget{
+			components.Section{Title: "Appearance", Child: w.Column{Cross: w.CrossStretch, ShrinkMain: true, Spacing: theme.SpaceS, Children: []w.Widget{
+				m.SwitchListTile{Leading: w.Icon{Icon: icons.DarkMode}, Title: "Dark mode", Subtitle: "Use the dark color scheme",
+					Value: st.Dark, OnChanged: func(v bool) { state.Update(ctx, func(s *state.Settings) { s.Dark = v }) }},
+				w.Wrap{Spacing: theme.SpaceS, RunSpacing: theme.SpaceS, Children: chips},
+			}}},
+			components.Section{Title: "About", Child: m.ListTile{Leading: w.Icon{Icon: icons.Info},
+				Title: [[printf "%q" .Title]], Subtitle: "Built with Nectar UI"}},
+		},
+	}
+}

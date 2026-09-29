@@ -20,12 +20,29 @@ cd myapp && CGO_ENABLED=0 go run .
 
 | Flag | Meaning |
 |---|---|
-| `-template` | `material` (default: theme, dark mode, app bar, FAB counter, test), `basic` (core widgets only, custom button), `explorer` (file tree + preview in a split view) |
+| `-template` | `material` (default: structured app with `internal/{app,theme,state,components,pages}`, light/dark theme, navigation rail, settings page, tests), `basic` (core widgets only, custom button), `explorer` (file tree + preview in a split view) |
+| `-seed` | brand color the theme is generated from, e.g. `#0B57D0` (default: M3 baseline `#6750A4`) |
 | `-module` | module path of the new app (default: the folder name) |
 | `-title` | window title (default: from the folder name, `my-app` → "My App") |
 | `-version` | engine version: `latest`, a tag, branch or commit (default: the CLI's own release, else `latest`) |
 | `-local` | use an engine checkout on disk (adds a `replace`), e.g. `-local ~/Projects/Go/nectar_ui` before pushing |
 | `-no-tidy`, `-git`, `-force` | skip fetching / run `git init` / write into a non-empty folder |
+
+### Package as a desktop app
+
+Run this in the app folder (pure Go, cross-compiles from any OS):
+
+```sh
+nectar build                            # this OS; on macOS a universal (arm64+amd64) .app
+nectar build -os windows -arch amd64    # dist/<exe>.exe with icon + DPI manifest, no console
+nectar build -os linux -arch arm64      # dist/<exe>-linux-arm64/ with .desktop, icon, install.sh
+```
+
+Name, bundle id, version and icon come from the app's `nectar.json`. The icon is `assets/icon.png`, a square PNG at 1024×1024. `nectar new` generates a default one in the seed color, and `nectar icon -seed "#0B57D0"` regenerates it.
+
+- **macOS:** you get `Info.plist`, an `.icns` icon and an ad-hoc signature.
+- **Windows:** the icon and manifest are written to a temporary `.syso` resource that the Go linker embeds in the `.exe`.
+- **Linux:** the window icon is set at runtime via `ui.Config.WithIcon`.
 
 `nectar templates` lists the templates. Their sources live in `cmd/nectar/templates` (`[[.Engine]]`-style placeholders, `_name` → `.name`). `NECTAR_BUILD_TEST=1 go test ./cmd/nectar` generates each one against this checkout and runs its tests.
 
@@ -90,6 +107,66 @@ So handlers can call `SetState` directly.
 - `Builder{Builder: func(ctx) Widget}`: an inline widget made from a closure.
 
 `CGO_ENABLED=0 go run ./examples/input` shows buttons with hover/pressed states, a counter and a draggable box.
+
+## Images and resources
+
+**Resources** (`ui/resources`) are files shipped inside the app. Embed a folder and mount it once; everything can then read by name, wherever the app is installed:
+
+```go
+//go:embed images fonts
+var files embed.FS
+
+resources.Mount("", files)             // later mounts override earlier ones
+resources.Mount("plugin", pluginFiles) // under plugin/; returns an unmount func
+data, err := resources.ReadFile("images/logo.png")
+resources.FS()                         // merged io/fs view (ReadDir, Stat, Glob, …)
+```
+
+In development you can mount the folder on disk instead, so edits show up without rebuilding: `resources.Mount("", os.DirFS("assets"))`. Apps made with `nectar new` do the embedding for you in `assets/assets.go`.
+
+**`widgets.Image`** loads and decodes in the background, with the result cached and shared by every widget showing the same source:
+
+```go
+w.Image{Source: w.AssetImage{Name: "images/logo.png"}, Width: 120}
+w.Image{Source: w.FileImage{Path: "/Users/me/photo.jpg"}, Fit: w.FitCover, Radius: 12}
+w.Image{Source: w.NetworkImage{
+    URL:     "https://api.example.com/render",
+    Method:  "POST",                                   // default GET (POST if Body set)
+    Headers: map[string]string{"Authorization": "Bearer " + token},
+    Body:    payload,
+    // AllowHTTP: true  permits plain http:// (https only by default, redirects included)
+}, Width: 64, Height: 64, Placeholder: m.CircularProgressIndicator{},
+   Error: func(err error) w.Widget { return w.Text{Text: "offline"} }, FadeIn: 200 * time.Millisecond}
+w.Image{Source: w.MemoryImage{Data: pngBytes}, Pixelated: true}
+```
+
+- **Formats:** PNG, JPEG, GIF (first frame), WebP, BMP and TIFF.
+- **Size:** with no `Width`/`Height` the widget takes the image's size, shrunk to its constraints. With one set, the other follows the aspect ratio.
+- **Fit and appearance:** `Fit` works like CSS `object-fit` (`FitContain`, `FitCover`, `FitFill`, `FitWidth`, `FitHeight`, `FitNone`, `FitScaleDown`). There's also `Alignment`, `Radius` (rounded corners), `Opacity`, and `Pixelated` (nearest-neighbour).
+- **Network:** you can also set `Timeout`, `MaxBytes`, a custom `Client` (proxy, TLS, cookies) and `Key`.
+- **Cache:** `widgets.Images` holds up to 256 MiB of decoded pixels (LRU) and has `Evict(src)`, `Clear()` and `Stats()`. Large images are capped at `widgets.MaxImageSize` (4096 px) when decoded.
+- **Custom sources:** implement `ImageSource`, which is just `CacheKey()` plus `Load(ctx) ([]byte, error)`.
+- **GPU:** each image becomes a texture. When one is drawn at half size or smaller, the engine uploads a box-filtered, pre-shrunk copy instead, so thumbnails stay smooth and cost little memory. Textures that go unused are freed.
+- **Tests:** in widget tests, `tt.PumpUntil(cond, timeout)` waits for background loads.
+
+## Window
+
+Any widget can control the native window through its context:
+
+```go
+win := widgets.WindowOf(ctx)
+win.SetSize(1280, 800)          // content size in logical px
+win.SetMinSize(640, 480)        // and SetMaxSize; 0, 0 = no limit
+win.SetTitle("Untitled — Notes")
+win.SetFullscreen(!win.IsFullscreen())
+win.Maximize()                  // toggles; also Minimize, Close
+w, h := win.Size()              // as of the last frame
+```
+
+- **Threading:** setters are safe from any goroutine. They queue the request, and `ui.App` applies it on the platform's main thread before the next frame, as AppKit requires.
+- **After a resize:** the new size reaches layout like a user resize would.
+- **Outside the app:** `ui.App.Window()` returns the same handle.
+- **Tests:** `tester.Tester.Window` fakes it. `SetSize` really resizes the test surface (`tt.Size`), clamped to the min/max size, and title, fullscreen and maximize are recorded for assertions.
 
 ## Engine building blocks
 

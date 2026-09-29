@@ -99,9 +99,37 @@ func (r *RenderViewport) PerformLayout(c geom.Constraints) geom.Size {
 	return size
 }
 
+// PaintBleed is how far shadows (and focus rings) may paint past the edge
+// of a scroll view or split pane where nothing is actually cut off. It
+// covers the deepest Material elevation shadow.
+const PaintBleed float32 = 24
+
 func (r *RenderViewport) Paint(ctx *PaintContext, o geom.Offset) {
 	rect := geom.RectFrom(o, r.size)
-	ctx.Canvas.PushClip(rect)
+	// Clip hard only at edges the content has scrolled past: at the start
+	// (and end) of the list nothing is hidden there, so a shadow of the
+	// first (last) item stays visible instead of being cut at the edge.
+	// The cross axis never hides content either.
+	clip := rect
+	atStart, atEnd := r.offset <= 0.5, r.offset >= r.MaxOffset()-0.5
+	if r.Axis == Vertical {
+		clip.X, clip.W = clip.X-PaintBleed, clip.W+2*PaintBleed
+		if atStart {
+			clip.Y, clip.H = clip.Y-PaintBleed, clip.H+PaintBleed
+		}
+		if atEnd {
+			clip.H += PaintBleed
+		}
+	} else {
+		clip.Y, clip.H = clip.Y-PaintBleed, clip.H+2*PaintBleed
+		if atStart {
+			clip.X, clip.W = clip.X-PaintBleed, clip.W+PaintBleed
+		}
+		if atEnd {
+			clip.W += PaintBleed
+		}
+	}
+	ctx.Canvas.PushClip(clip)
 	ctx.PaintChild(r.child, o)
 	ctx.Canvas.PopClip()
 	ext := r.extent()

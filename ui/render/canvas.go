@@ -17,6 +17,7 @@ const (
 	CmdArc                       // circular arc stroke inscribed in Rect
 	CmdIcon                      // vector icon scaled into Rect
 	CmdRipple                    // circle (Center, Blur=radius) clipped to a rounded rect
+	CmdImage                     // Image's Src pixels into Rect (Radius corners, Width 1 = nearest)
 )
 
 // Command is one entry of the display list. Coordinates are logical pixels.
@@ -33,6 +34,8 @@ type Command struct {
 	Sweep  float32         // CmdArc: sweep, radians (clockwise)
 	Icon   *vector.Icon    // CmdIcon
 	Center geom.Offset     // CmdRipple: circle center (window coordinates)
+	Image  *Image          // CmdImage
+	Src    geom.Rect       // CmdImage: source rect in image pixels
 }
 
 // Canvas records drawing commands. It's a retained display list, not an

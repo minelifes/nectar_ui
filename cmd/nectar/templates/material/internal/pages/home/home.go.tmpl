@@ -1,0 +1,55 @@
+// Package home is the first page.
+package home
+
+import (
+	"fmt"
+
+	m "[[.Engine]]/ui/material"
+	"[[.Engine]]/ui/material/icons"
+	w "[[.Engine]]/ui/widgets"
+
+	"[[.Module]]/internal/components"
+	"[[.Module]]/internal/theme"
+)
+
+// Page is the home page: a counter to show state and theming.
+type Page struct{}
+
+func (Page) CreateState() w.State { return &pageState{} }
+
+type pageState struct {
+	w.StateBase
+	count int
+}
+
+func (s *pageState) Build(ctx w.BuildContext) w.Widget {
+	th := m.ThemeOf(ctx)
+	sc := th.Scheme
+	return components.Page{
+		Title:    "Welcome",
+		Subtitle: "Edit internal/pages/home/home.go and run the app again.",
+		Children: []w.Widget{
+			// An embedded resource (assets/images/welcome.png).
+			w.SizedBox{Height: 180, Child: w.Image{Source: w.AssetImage{Name: "images/welcome.png"},
+				Fit: w.FitCover, Radius: theme.RadiusL}},
+			components.Section{Title: "Counter", Child: w.Row{Cross: w.CrossCenter, Spacing: theme.SpaceM, Children: []w.Widget{
+				w.Expanded{Child: w.Text{Text: pressed(s.count), Style: m.Styled(th.Text.TitleLarge, sc.Primary)}},
+				m.OutlinedButton{Label: "Reset", OnPressed: func() { s.SetState(func() { s.count = 0 }) }},
+				m.FilledButton{Label: "Add", Icon: icons.Add, OnPressed: func() { s.SetState(func() { s.count++ }) }},
+			}}},
+			components.Section{Title: "Next steps", Child: w.Column{Cross: w.CrossStretch, ShrinkMain: true, Children: []w.Widget{
+				m.ListTile{Leading: w.Icon{Icon: icons.Palette}, Title: "Change the look", Subtitle: "internal/theme: seed color, type scale, spacing"},
+				m.ListTile{Leading: w.Icon{Icon: icons.Image}, Title: "Add images and files", Subtitle: "assets/: embedded in the app; show with widgets.AssetImage"},
+				m.ListTile{Leading: w.Icon{Icon: icons.Add}, Title: "Add a page", Subtitle: "internal/pages/<name>, then list it in internal/app/routes.go"},
+				m.ListTile{Leading: w.Icon{Icon: icons.Tune}, Title: "Share state", Subtitle: "internal/state: add fields to Settings, read with state.Of"},
+			}}},
+		},
+	}
+}
+
+func pressed(n int) string {
+	if n == 1 {
+		return "Pressed once"
+	}
+	return fmt.Sprintf("Pressed %d times", n)
+}

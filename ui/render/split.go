@@ -107,11 +107,32 @@ func (r *RenderSplit) cons(minMain, maxMain, minCross, maxCross float32) geom.Co
 }
 
 func (r *RenderSplit) Paint(ctx *PaintContext, o geom.Offset) {
-	for i, ch := range r.Children() {
+	kids := r.Children()
+	for i, ch := range kids {
 		if i%2 == 0 {
-			// Panes are clipped so content can't spill over neighbours.
+			// Panes are clipped so content can't spill over neighbours; the
+			// outer edges (not shared with another pane) let shadows bleed.
 			b := ch.Base()
-			ctx.Canvas.PushClip(geom.RectFrom(o.Add(b.Offset()), b.Size()))
+			clip := geom.RectFrom(o.Add(b.Offset()), b.Size())
+			first, last := i == 0, i == len(kids)-1
+			if r.Vertical {
+				clip.X, clip.W = clip.X-PaintBleed, clip.W+2*PaintBleed
+				if first {
+					clip.Y, clip.H = clip.Y-PaintBleed, clip.H+PaintBleed
+				}
+				if last {
+					clip.H += PaintBleed
+				}
+			} else {
+				clip.Y, clip.H = clip.Y-PaintBleed, clip.H+2*PaintBleed
+				if first {
+					clip.X, clip.W = clip.X-PaintBleed, clip.W+PaintBleed
+				}
+				if last {
+					clip.W += PaintBleed
+				}
+			}
+			ctx.Canvas.PushClip(clip)
 			ctx.PaintChild(ch, o)
 			ctx.Canvas.PopClip()
 		} else {

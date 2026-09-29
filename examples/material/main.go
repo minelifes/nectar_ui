@@ -4,6 +4,7 @@
 package main
 
 import (
+	"embed"
 	"fmt"
 	"io/fs"
 	"log"
@@ -16,9 +17,20 @@ import (
 	"github.com/minelifes/nectar_ui/ui/geom"
 	m "github.com/minelifes/nectar_ui/ui/material"
 	"github.com/minelifes/nectar_ui/ui/material/icons"
+	"github.com/minelifes/nectar_ui/ui/resources"
 	"github.com/minelifes/nectar_ui/ui/vector"
 	w "github.com/minelifes/nectar_ui/ui/widgets"
 )
+
+// The gallery's resources (images) are embedded into the binary.
+//
+//go:embed assets
+var galleryAssets embed.FS
+
+func init() {
+	sub, _ := fs.Sub(galleryAssets, "assets")
+	resources.Mount("", sub)
+}
 
 func main() {
 	app := ui.NewApp(ui.DefaultConfig().WithTitle("Nectar UI — Material 3").WithSize(1200, 800))
@@ -284,6 +296,8 @@ func containPage(ctx w.BuildContext) w.Widget {
 		section(ctx, "Tree view", w.Builder{Builder: func(ctx w.BuildContext) w.Widget { return fileBrowser{} }}),
 		section(ctx, "Carousels", w.Builder{Builder: func(ctx w.BuildContext) w.Widget { return carousels{} }}),
 		section(ctx, "Side sheets", w.Builder{Builder: func(ctx w.BuildContext) w.Widget { return sideSheets{} }}),
+		section(ctx, "Images", imagesDemo{}),
+		section(ctx, "Window", windowDemo{}),
 		section(ctx, "Banner", m.MaterialBanner{Icon: icons.WifiOff, Content: "You're offline. Some features may be unavailable.",
 			Actions: []w.Widget{m.TextButton{Label: "Dismiss", OnPressed: noop}, m.TextButton{Label: "Retry", OnPressed: noop}}}),
 	}}
@@ -767,4 +781,62 @@ func (s *fileBrowserState) Build(ctx w.BuildContext) w.Widget {
 			{Min: 240, Child: m.Card{Variant: m.CardFilled, Padding: geom.Insets(16), Child: preview}},
 		}}},
 	}}
+}
+
+// ---------------------------------------------------------------------------
+
+// windowDemo resizes the app window from inside the tree via WindowOf(ctx).
+type windowDemo struct{}
+
+func (windowDemo) Build(ctx w.BuildContext) w.Widget {
+	win := w.WindowOf(ctx)
+	th := m.ThemeOf(ctx)
+	size := func(label string, wd, h int) w.Widget {
+		return m.OutlinedButton{Label: label, OnPressed: func() { win.SetSize(wd, h) }}
+	}
+	return w.Column{Cross: w.CrossStart, ShrinkMain: true, Spacing: 12, Children: []w.Widget{
+		w.Text{Text: "Any widget can control the window: widgets.WindowOf(ctx).SetSize(w, h), SetTitle, SetFullscreen, Maximize…",
+			Style: m.Styled(th.Text.BodyMedium, th.Scheme.OnSurfaceVariant)},
+		wrap(
+			size("Compact 900×640", 900, 640),
+			size("Default 1200×800", 1200, 800),
+			size("Wide 1600×900", 1600, 900),
+			m.FilledTonalButton{Label: "Maximize / restore", Icon: icons.OpenInFull, OnPressed: win.Maximize},
+			m.FilledTonalButton{Label: "Fullscreen", Icon: icons.Fullscreen, OnPressed: func() { win.SetFullscreen(!win.IsFullscreen()) }},
+		),
+	}}
+}
+
+// ---------------------------------------------------------------------------
+
+// imagesDemo shows the three image sources.
+type imagesDemo struct{}
+
+func (imagesDemo) Build(ctx w.BuildContext) w.Widget {
+	th := m.ThemeOf(ctx)
+	sc := th.Scheme
+	tile := func(title, sub string, img w.Widget) w.Widget {
+		return w.SizedBox{Width: 260, Child: w.Column{Cross: w.CrossStart, ShrinkMain: true, Spacing: 6, Children: []w.Widget{
+			img,
+			w.Text{Text: title, Style: m.Styled(th.Text.TitleSmall, sc.OnSurface)},
+			w.Text{Text: sub, Style: m.Styled(th.Text.BodySmall, sc.OnSurfaceVariant), MaxLines: 2, Ellipsis: true},
+		}}}
+	}
+	failed := func(err error) w.Widget {
+		return w.DecoratedBox{Color: sc.SurfaceContainerHighest, Border: &geom.Border{Radius: 16}, Child: w.Center{Child: w.Padding{Padding: geom.Insets(16),
+			Child: w.Text{Text: err.Error(), Style: m.Styled(th.Text.BodySmall, sc.Error), MaxLines: 3, Ellipsis: true}}}}
+	}
+	loading := w.Center{Child: m.CircularProgressIndicator{}}
+	return wrap(
+		tile("Resource", `AssetImage{Name: "landscape.png"}`, w.Image{
+			Source: w.AssetImage{Name: "landscape.png"}, Width: 260, Height: 160, Fit: w.FitCover, Radius: 16}),
+		tile("File", `FileImage{Path: "screenshot.png"}`, w.Image{
+			Source: w.FileImage{Path: "screenshot.png"}, Width: 260, Height: 160, Fit: w.FitCover, Radius: 16,
+			Placeholder: loading, Error: failed}),
+		tile("Network", `NetworkImage{URL: "https://…"}`, w.Image{
+			Source: w.NetworkImage{URL: "https://picsum.photos/id/1018/520/320",
+				Headers: map[string]string{"User-Agent": "nectar-ui-gallery"}},
+			Width: 260, Height: 160, Fit: w.FitCover, Radius: 16, FadeIn: 250 * time.Millisecond,
+			Placeholder: loading, Error: failed}),
+	)
 }

@@ -4,8 +4,11 @@
 //
 //	nectar new myapp                      # Material 3 app in ./myapp
 //	nectar new -template explorer tools/browser
-//	nectar new -module github.com/me/notes -title "Notes" notes
+//	nectar new -module github.com/me/notes -title "Notes" -seed "#0B57D0" notes
 //	nectar templates                      # list templates
+//	nectar build                          # package ./ as a desktop app (+ icon)
+//	nectar build -os windows -arch amd64  # cross-build a Windows .exe
+//	nectar icon -seed "#0B57D0"           # regenerate assets/icon.png
 //
 // The new app depends on the engine fetched from GitHub
 // (github.com/minelifes/nectar_ui). Use -local to point it at a checkout
@@ -16,6 +19,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime/debug"
 	"strings"
 )
@@ -29,6 +33,10 @@ func main() {
 	switch cmd, args := os.Args[1], os.Args[2:]; cmd {
 	case "new", "create", "init":
 		err = cmdNew(args)
+	case "build":
+		err = cmdBuild(args)
+	case "icon":
+		err = cmdIcon(args)
 	case "templates", "list":
 		for _, t := range Templates {
 			fmt.Printf("  %-10s %s\n", t.Name, t.Description)
@@ -53,6 +61,8 @@ func usage() {
 
 Usage:
   nectar new [flags] <dir>   create an app in <dir>
+  nectar build [flags] [dir] package an app: macOS .app, Windows .exe, Linux + .desktop
+  nectar icon [flags]        generate a default app icon (assets/icon.png)
   nectar templates           list the app templates
   nectar version             print the version
 
@@ -66,12 +76,44 @@ func newFlags(o *Options) *flag.FlagSet {
 	fs.StringVar(&o.Module, "module", "", "module path of the new app (default: the folder name)")
 	fs.StringVar(&o.Template, "template", "material", "app template: "+templateNames())
 	fs.StringVar(&o.Title, "title", "", "window title (default: from the folder name)")
+	fs.StringVar(&o.Seed, "seed", "", "brand color the theme is generated from, e.g. #0B57D0 (default: M3 baseline #6750A4)")
 	fs.StringVar(&o.Version, "version", defaultEngineVersion(), "engine version to fetch: latest, a tag (v0.2.0), a branch or a commit")
 	fs.StringVar(&o.Local, "local", "", "use the engine checkout in this folder (adds a replace directive) instead of GitHub")
 	fs.BoolVar(&o.NoTidy, "no-tidy", false, "only write files; don't run go get / go mod tidy")
 	fs.BoolVar(&o.Git, "git", false, "run git init in the new folder")
 	fs.BoolVar(&o.Force, "force", false, "write into a folder that isn't empty (existing files are kept unless the template has them)")
 	return fs
+}
+
+func cmdIcon(args []string) error {
+	fs := flag.NewFlagSet("icon", flag.ContinueOnError)
+	seed := fs.String("seed", "", "background color, e.g. #0B57D0 (default: M3 baseline #6750A4)")
+	name := fs.String("name", "", "app name; its first letter goes on the icon (default: from nectar.json)")
+	out := fs.String("o", "assets/icon.png", "output PNG (1024×1024)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	lit, err := parseSeed(*seed)
+	if err != nil {
+		return err
+	}
+	if *name == "" {
+		m, err := readManifest(".")
+		if err != nil {
+			return err
+		}
+		*name = m.Name
+	}
+	var c uint32
+	fmt.Sscanf(lit, "0x%X", &c)
+	if err := os.MkdirAll(filepath.Dir(*out), 0o755); err != nil {
+		return err
+	}
+	if err := writeIconPNG(*out, defaultIcon(c, *name)); err != nil {
+		return err
+	}
+	fmt.Println("Wrote", *out, "(replace it with your own 1024×1024 PNG any time)")
+	return nil
 }
 
 func cmdNew(args []string) error {

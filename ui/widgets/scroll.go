@@ -160,6 +160,9 @@ func (s *scrollState) Build(ctx BuildContext) Widget {
 	if !w.Padding.IsZero() {
 		child = Padding{Padding: w.Padding, Child: child}
 	}
+	// Scrolling only moves the content: replay its display list instead of
+	// repainting it.
+	child = RepaintBoundary{Child: child}
 	return Listener{
 		OnEvent: func(e PointerEvent) {
 			// An inner scroll view that already moved has claimed the event.
@@ -210,7 +213,10 @@ func (w viewport) UpdateRenderObject(_ BuildContext, ro render.RenderObject) {
 		r.Axis = w.axis
 		render.MarkNeedsLayout(r)
 	}
-	r.ThumbColor = w.thumb
+	if r.ThumbColor != w.thumb {
+		r.ThumbColor = w.thumb
+		render.MarkNeedsPaint(r)
+	}
 	if w.ctrl.vp != r {
 		w.ctrl.attach(r, w.owner)
 	}

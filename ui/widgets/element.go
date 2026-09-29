@@ -82,6 +82,8 @@ func (e *elementBase) markNeedsBuild() {
 func inflate(w Widget, parent Element) Element {
 	var el Element
 	switch w := w.(type) {
+	case LayoutBuilder:
+		el = &layoutBuilderElement{}
 	case StatelessWidget:
 		el = &statelessElement{}
 	case StatefulWidget:
@@ -370,6 +372,9 @@ func (e *renderElementBase) mountRender(self Element, parent Element) {
 func (e *renderElementBase) updateRender(self Element, w Widget) {
 	e.widget = w
 	w.(RenderObjectWidget).UpdateRenderObject(self, e.ro)
+	// A new configuration may paint differently: repaint boundaries around
+	// it must re-record. (Unchanged widgets never get here.)
+	render.InvalidatePaint(e.ro)
 }
 
 // leafElement: render object without children (e.g. text).

@@ -4,6 +4,7 @@ import (
 	"runtime"
 	"slices"
 
+	"github.com/minelifes/nectar_ui/ui/geom"
 	"github.com/minelifes/nectar_ui/ui/render"
 )
 
@@ -100,6 +101,13 @@ type FocusNode struct {
 	OnKey func(KeyEvent) bool
 	// OnText receives typed text (already composed, e.g. "é").
 	OnText func(string)
+	// OnIME receives input-method composition steps (CJK and other
+	// complex input): the preedit to show inline, then the committed text.
+	// Nodes without it don't take IME input.
+	OnIME func(IMEEvent)
+	// IMERect reports where the text caret is (window coordinates, logical
+	// px), so the platform can place the IME candidate window next to it.
+	IMERect func() (geom.Rect, bool)
 	// OnFocusChange is called when the node gains or loses focus.
 	OnFocusChange func(focused bool)
 	// SkipTraversal excludes the node from Tab navigation.
@@ -208,6 +216,48 @@ func (m *FocusManager) HandleText(s string) {
 	if n := m.primary; n != nil && n.OnText != nil {
 		n.OnText(s)
 	}
+}
+
+// IMEKind is the step of an input-method composition.
+type IMEKind uint8
+
+const (
+	IMEStart  IMEKind = iota // composition begins
+	IMEUpdate                // the preedit text changed
+	IMEEnd                   // composition finished: Text is committed ("" = cancelled)
+)
+
+// IMEEvent is one step of an input-method composition. While composing,
+// the IME shows candidates and the field shows the preedit inline
+// (underlined); on IMEEnd the committed text replaces it.
+type IMEEvent struct {
+	Kind IMEKind
+	// Text is the preedit (IMEUpdate) or the committed text (IMEEnd).
+	Text string
+	// Cursor is the caret position inside the preedit, as a byte offset
+	// into Text (IMEUpdate).
+	Cursor int
+}
+
+// HandleIME routes a composition step to the focused node.
+func (m *FocusManager) HandleIME(e IMEEvent) {
+	if n := m.primary; n != nil && n.OnIME != nil {
+		n.OnIME(e)
+	}
+}
+
+// WantsIME reports whether the focused node takes IME input (platforms can
+// turn the input method off otherwise, e.g. for password fields).
+func (m *FocusManager) WantsIME() bool {
+	return m.primary != nil && m.primary.OnIME != nil
+}
+
+// IMERect returns the focused node's caret rectangle, if it has one.
+func (m *FocusManager) IMERect() (geom.Rect, bool) {
+	if n := m.primary; n != nil && n.IMERect != nil {
+		return n.IMERect()
+	}
+	return geom.Rect{}, false
 }
 
 // BeginPointerDown / EndPointerDown bracket a pointer-down dispatch so that

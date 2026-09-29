@@ -237,6 +237,22 @@ func (w Container) Build(BuildContext) Widget {
 // Ptr is a helper for optional fields: Alignment: widgets.Ptr(geom.Center).
 func Ptr[T any](v T) *T { return &v }
 
+// RepaintBoundary caches the display list of its subtree: while nothing
+// inside changes, later frames replay it instead of repainting (moving,
+// fading or clipping the boundary itself is fine). Wrap subtrees that are
+// costly to paint and change rarely, or that move as a whole, e.g. a
+// complex static panel next to an animation. Scroll views already put one
+// around their content.
+type RepaintBoundary struct {
+	Child Widget
+}
+
+func (w RepaintBoundary) ChildWidget() Widget { return w.Child }
+func (w RepaintBoundary) CreateRenderObject(BuildContext) render.RenderObject {
+	return &render.RenderRepaintBoundary{}
+}
+func (w RepaintBoundary) UpdateRenderObject(BuildContext, render.RenderObject) {}
+
 // KeyedSubtree attaches a key to any widget so its element (and State) is
 // matched by key instead of by position when a child list changes.
 type KeyedSubtree struct {

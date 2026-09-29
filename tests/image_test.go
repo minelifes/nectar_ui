@@ -277,7 +277,10 @@ func TestImageSourceChangeCancelsOld(t *testing.T) {
 	var set func(func())
 	var src w.ImageSource = slow
 	tt := tester.New(w.Builder{Builder: func(ctx w.BuildContext) w.Widget {
-		return statefulHost{build: func(s func(func())) w.Widget { set = s; return w.Align{Alignment: geom.TopLeft, Child: w.Image{Source: src}} }}
+		return statefulHost{build: func(s func(func())) w.Widget {
+			set = s
+			return w.Align{Alignment: geom.TopLeft, Child: w.Image{Source: src}}
+		}}
 	}}, 200, 200)
 	set(func() { src = fast })
 	if !tt.PumpUntil(func() bool { s, _ := imageSize(tt); return s.W == 50 }, 5*time.Second) {
@@ -292,7 +295,9 @@ func TestImageSourceChangeCancelsOld(t *testing.T) {
 }
 
 // statefulHost lets a test rebuild with new values.
-type statefulHost struct{ build func(set func(func())) w.Widget }
+type statefulHost struct {
+	build func(set func(func())) w.Widget
+}
 
 func (statefulHost) CreateState() w.State { return &statefulHostState{} }
 

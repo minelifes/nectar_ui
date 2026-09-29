@@ -1,6 +1,9 @@
 package text
 
-import "unicode/utf8"
+import (
+	"math"
+	"unicode/utf8"
+)
 
 // CaretStops returns the x position of every caret stop in a single line of
 // text: stops[i] is the pen position before the i-th rune, and the last
@@ -54,4 +57,29 @@ func NextRune(s string, i int) int {
 	}
 	_, n := utf8.DecodeRuneInString(s[i:])
 	return i + n
+}
+
+// LineBreaks returns the byte offsets where each visual line of line (a
+// single hard line, no '\n') starts when wrapped at maxW, using the same
+// rules as Layout: break after spaces or '-', mid-word only when a word is
+// wider than maxW. The first entry is always 0. maxW <= 0 or +Inf means no
+// wrapping.
+func LineBreaks(line string, style Style, maxW float32) []int {
+	breaks := []int{0}
+	if maxW <= 0 || math.IsInf(float64(maxW), 1) || line == "" {
+		return breaks
+	}
+	style = style.Resolved()
+	cl := shape(style.Font, style.Size, style.LetterSpacing, line, 0, nil)
+	for start := 0; start < len(cl); {
+		_, next := breakLine(cl[start:], maxW)
+		if next <= 0 {
+			next = 1
+		}
+		start += next
+		if start < len(cl) {
+			breaks = append(breaks, cl[start].byteI)
+		}
+	}
+	return breaks
 }

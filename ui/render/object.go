@@ -38,6 +38,7 @@ type Box struct {
 	constraints geom.Constraints
 	needsLayout bool
 	laidOut     bool
+	paintDirty  bool // repaint boundaries: the cached display list is stale
 	depth       int
 
 	// ParentData is free-form data owned by the parent (e.g. flex factor).
@@ -60,15 +61,34 @@ func Layout(ro RenderObject, c geom.Constraints) geom.Size {
 	if b.laidOut && !b.needsLayout && b.constraints == c {
 		return b.size
 	}
+	dirty, old := b.needsLayout || !b.laidOut, b.size
 	b.constraints = c
 	b.size = c.Constrain(ro.PerformLayout(c))
 	b.needsLayout = false
 	b.laidOut = true
+	// What the node paints changes if one of its properties did (it was
+	// marked) or its size did. New constraints alone that end in the same
+	// size don't: descendants that change catch it themselves, moved
+	// children are caught by SetOffset, and nodes whose painting depends on
+	// the constraints directly (text re-wrapping) call InvalidatePaint.
+	if dirty || b.size != old {
+		InvalidatePaint(ro)
+	}
 	return b.size
 }
 
-// SetOffset positions a child inside its parent.
-func SetOffset(ro RenderObject, o geom.Offset) { ro.Base().offset = o }
+// SetOffset positions a child inside its parent. A child that moves makes
+// the repaint boundaries around its parent stale (not its own: a boundary
+// that moves just replays its cache at the new place).
+func SetOffset(ro RenderObject, o geom.Offset) {
+	b := ro.Base()
+	if b.offset != o {
+		b.offset = o
+		if b.parent != nil {
+			InvalidatePaint(b.parent)
+		}
+	}
+}
 
 // MarkNeedsLayout flags ro and its ancestors for re-layout and schedules a
 // frame. Call it from property setters that affect size.
@@ -83,11 +103,24 @@ func MarkNeedsLayout(ro RenderObject) {
 	MarkNeedsPaint(ro)
 }
 
-// MarkNeedsPaint schedules a repaint. (The whole tree is repainted each
-// frame; the display list is cheap. Layers/caching can be added later.)
+// MarkNeedsPaint schedules a repaint of ro: the repaint boundaries around
+// it re-record their display lists, and a frame is requested. Call it from
+// property setters that change only how something looks.
 func MarkNeedsPaint(ro RenderObject) {
+	InvalidatePaint(ro)
 	if o := ro.Base().owner; o != nil {
 		o.requestVisualUpdate()
+	}
+}
+
+// InvalidatePaint marks the repaint boundaries containing ro as stale
+// without scheduling a frame (for code already running inside one, like
+// layout or widget updates).
+func InvalidatePaint(ro RenderObject) {
+	for n := ro; n != nil; n = n.Base().parent {
+		if _, ok := n.(*RenderRepaintBoundary); ok {
+			n.Base().paintDirty = true
+		}
 	}
 }
 

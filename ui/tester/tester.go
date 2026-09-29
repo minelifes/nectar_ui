@@ -46,6 +46,7 @@ type Tester struct {
 	disp      *render.PointerDispatcher
 	now       time.Time
 	clipboard string
+	composing bool
 
 	dev      *wgpu.Device
 	inst     *wgpu.Instance

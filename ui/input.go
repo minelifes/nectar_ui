@@ -3,6 +3,7 @@ package ui
 import (
 	"sync"
 
+	"github.com/gogpu/gogpu"
 	"github.com/gogpu/gpucontext"
 
 	"github.com/minelifes/nectar_ui/ui/geom"
@@ -26,11 +27,13 @@ type inputQueue struct {
 	cursor     render.Cursor
 }
 
-// queuedEvent is one platform event: pointer/scroll, key press, or text.
+// queuedEvent is one platform event: pointer/scroll, key press, text or
+// an IME composition step.
 type queuedEvent struct {
 	pointer *render.PointerEvent
 	key     *widgets.KeyEvent
 	text    string
+	ime     *widgets.IMEEvent
 }
 
 // setupInput subscribes to gogpu's pointer, scroll, key and text events.
@@ -60,6 +63,17 @@ func (a *App) setupInput() {
 		a.input.enqueue(queuedEvent{text: s})
 		a.gpuApp.RequestRedraw()
 	})
+	// IME composition (CJK etc.). The platform reports the caret inside the
+	// preedit in runes; widgets use byte offsets.
+	ime := func(e widgets.IMEEvent) {
+		a.input.enqueue(queuedEvent{ime: &e})
+		a.gpuApp.RequestRedraw()
+	}
+	es.OnIMECompositionStart(func() { ime(widgets.IMEEvent{Kind: widgets.IMEStart}) })
+	es.OnIMECompositionUpdate(func(st gpucontext.IMEState) {
+		ime(widgets.IMEEvent{Kind: widgets.IMEUpdate, Text: st.CompositionText, Cursor: runeToByte(st.CompositionText, st.CursorPos)})
+	})
+	es.OnIMECompositionEnd(func(committed string) { ime(widgets.IMEEvent{Kind: widgets.IMEEnd, Text: committed}) })
 	a.buildOwner.Clipboard = appClipboard{a}
 }
 
@@ -108,6 +122,8 @@ func (a *App) processInput() {
 			fm.HandleKey(*e.key)
 		case e.text != "":
 			fm.HandleText(e.text)
+		case e.ime != nil:
+			fm.HandleIME(*e.ime)
 		}
 	}
 	if c := q.dispatcher.Cursor(); c != q.cursor {
@@ -208,4 +224,47 @@ func convertKey(k gpucontext.Key) widgets.KeyCode {
 		return widgets.KeyEscape + widgets.KeyCode(k-gpucontext.KeyEscape)
 	}
 	return widgets.KeyUnknown
+}
+
+func runeToByte(s string, runes int) int {
+	if runes <= 0 {
+		return 0
+	}
+	n := 0
+	for i := range s {
+		if n == runes {
+			return i
+		}
+		n++
+	}
+	return len(s)
+}
+
+// imeController is what a platform offers to steer its input method
+// (gpucontext.IMEController); used when the host implements it.
+type imeController interface {
+	SetIMEPosition(x, y int)
+	SetIMEEnabled(enabled bool)
+}
+
+// syncIME tells the platform whether the focused widget takes IME input
+// and where its caret is, so candidate windows open next to the text. It
+// runs after paint (render thread); the platform calls are queued for the
+// main thread like other window operations.
+func (a *App) syncIME(scale float32) {
+	if _, ok := any(a.gpuApp).(imeController); !ok {
+		return
+	}
+	fm := a.buildOwner.Focus()
+	if want := fm.WantsIME(); want != a.imeEnabled {
+		a.imeEnabled = want
+		a.window.do(func(g *gogpu.App) { any(g).(imeController).SetIMEEnabled(want) })
+	}
+	if r, ok := fm.IMERect(); ok {
+		x, y := int(r.X*scale+0.5), int(r.Bottom()*scale+0.5)
+		if x != a.imePos[0] || y != a.imePos[1] {
+			a.imePos = [2]int{x, y}
+			a.window.do(func(g *gogpu.App) { any(g).(imeController).SetIMEPosition(x, y) })
+		}
+	}
 }

@@ -66,12 +66,33 @@ ui            App: window + frame loop (build → layout → paint → GPU)
 
 Frames are on demand: `SetState`, `Post` and `MarkNeedsLayout/Paint` call `RequestRedraw`, and nothing renders while the UI is idle.
 
+**Repaint boundaries.** `widgets.RepaintBoundary{Child: …}` records its subtree's display list once. It replays that list until something inside changes: a relayout, a widget update, or `MarkNeedsPaint`.
+
+- **What's free:** moving the boundary (scroll, translation), fading it (`Opacity`), or clipping it just replays the cached commands, shifted, faded and clipped. Commands scrolled out of view are skipped.
+- **Scroll views** wrap their content in one automatically, so scrolling doesn't repaint the content.
+- **Where to use one:** around subtrees that are costly to paint and change rarely, for example a static panel next to an animation.
+- **Checking it works:** `RenderRepaintBoundary.Stats()` reports hits (replays) and misses (repaints).
+- **For custom render objects:** call `MarkNeedsPaint` (or `render.InvalidatePaint` inside a frame) when something changes only its appearance.
+- **Suspect a stale cache?** Set `render.CacheRepaintBoundaries = false` to paint everything every frame. If a glitch disappears, some render object changes its looks without `MarkNeedsPaint`. `tests/boundary_diff_test.go` checks the Material widgets this way, comparing cached and uncached output step by step.
+
 ## Text
 
 - **Fonts:** `golang.org/x/image/font/sfnt` parses TTF/OTF. The Go fonts are embedded, so there's no setup (Latin, Cyrillic, Greek).
 - **Shaping:** cmap lookup plus kerning. Contextual shaping for Arabic/Indic isn't supported yet (HarfBuzz-style shaping would slot into `text.shape`).
 - **Layout:** greedy word wrap at spaces and hyphens, mid-word break for long words, `\n` hard breaks, `LineHeight`, `LetterSpacing`, alignment, and `MaxLines` + ellipsis.
 - **Atlas:** glyphs are rasterized on demand at *physical* pixel size with 4 horizontal subpixel positions, so text stays crisp at any DPI. They're stored in an RGBA atlas (1024², shelf packer). Only dirty rows are uploaded, and the atlas resets itself when it fills up.
+- **Editing:** multiline fields (`EditableText{Multiline: true}`, `material.TextField{Multiline: true}`) soft-wrap at the field width using the same line breaking as `Text`. `NoWrap` turns that off.
+  - Caret movement works on visual lines: ↑/↓, Home/End and clicks.
+  - Selection spans wrapped lines.
+- **IME** (CJK and other input methods):
+  - While the user composes, the preedit shows inline in the field, underlined, with the IME's caret inside it. The committed text then replaces it, and cancelling leaves the field unchanged.
+  - Editing keys belong to the input method while it's composing.
+  - Password and read-only fields don't take IME input.
+  - Fields report their caret rectangle (`FocusNode.IMERect`) so the platform can place the candidate window.
+  - Your own widgets can take part via `FocusNode.OnIME` (`IMEStart` / `IMEUpdate` / `IMEEnd`).
+  - In tests: `tt.Compose("ni", -1)`, `tt.Commit("你")`, `tt.CancelIME()`, `tt.IMERect()`.
+  - Platform side: gogpu declares the composition callbacks, and `ui.App` subscribes to them, but its macOS/Windows/Linux backends don't emit them yet. Inline composition turns on as soon as they do. Until then, Windows delivers the committed text as ordinary typing, while macOS and Linux get no IME input.
+- **Fonts for CJK:** the built-in Go fonts don't include CJK glyphs. Load a CJK font (e.g. Noto Sans CJK) with `text.ParseFont` from your resources and use it in the text style.
 
 ## Writing widgets
 
@@ -183,6 +204,26 @@ w, h := win.Size()              // as of the last frame
 - **Outside the app:** `ui.App.Window()` returns the same handle.
 - **Tests:** `tester.Tester.Window` fakes it. `SetSize` really resizes the test surface (`tt.Size`), clamped to the min/max size, and title, fullscreen and maximize are recorded for assertions.
 
+## Responsive layouts: `LayoutBuilder`
+
+`LayoutBuilder` builds its child during layout, from the constraints its parent gives it (like Flutter's):
+
+```go
+widgets.LayoutBuilder{Builder: func(ctx widgets.BuildContext, c geom.Constraints) widgets.Widget {
+	if c.MaxW >= 720 {
+		return widgets.Row{Children: []widgets.Widget{sidebar, widgets.Expanded{Child: content}}}
+	}
+	return content // narrow: no sidebar
+}}
+```
+
+- **Local space:** it sees the space of its own spot in the tree (a split pane, a dialog, a card), not the window. For the window size use `WindowOf(ctx).Size()`.
+- **When it re-runs:** when its constraints change, when its parent rebuilds it, or when something the builder reads from `ctx` changes (a `Provider`, the theme). Frames that lay it out with the same constraints reuse the last build.
+- **Sizing:** the child is laid out with the same constraints, and the `LayoutBuilder` takes the child's size.
+- **Unbounded axes:** inside a scroll view or a `Row`, `c.MaxH` / `c.MaxW` can be `geom.Inf`. Check `c.HasBoundedWidth()` before dividing by them.
+- **State:** state below it is kept when a re-run returns the same widget types in the same places. Give the branches keys to keep state across them.
+- **Empty child:** returning `nil` leaves it empty.
+
 ## Engine building blocks
 
 - **Drawing:** the `render.Canvas` draws rounded rects, strokes, arcs, soft shadows, ripples (a circle clipped to a rounded rect), vector icons and text. It also has clip and opacity stacks. Every shape is drawn analytically in one uber-shader.
@@ -228,6 +269,7 @@ tt.SavePNG("out.png")            // renders with the wgpu CPU fallback adapter
 
 ## Next steps
 
-- IME composition for CJK text input, and soft wrapping in multiline text fields.
-- Layers / repaint boundaries (cache display lists of static subtrees).
-- Images (same atlas/texture path), transforms (scale/rotate), per-corner radii, fling scrolling.
+- Platform IME events in gogpu (NSTextInputClient on macOS, `WM_IME_*` on Windows, text-input-v3/XIM on Linux); the engine side is ready.
+- Font fallback (e.g. a CJK font behind the default one), so mixed-script text renders without choosing a font per style.
+- GPU-side caching for repaint boundaries (reuse vertex data too, not just the display list).
+- Transforms (scale/rotate), per-corner radii, fling scrolling.

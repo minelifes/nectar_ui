@@ -79,13 +79,16 @@ type EditableText struct {
 	CursorColor    geom.Color
 	SelectionColor geom.Color
 	Multiline      bool
-	MinLines       int
-	Obscure        bool // password dots
-	ReadOnly       bool
-	Autofocus      bool
-	OnChanged      func(string)
-	OnSubmitted    func(string)
-	OnFocusChange  func(bool)
+	// NoWrap keeps long lines of a multiline field on one visual line
+	// (by default they soft-wrap at the field's width).
+	NoWrap        bool
+	MinLines      int
+	Obscure       bool // password dots
+	ReadOnly      bool
+	Autofocus     bool
+	OnChanged     func(string)
+	OnSubmitted   func(string)
+	OnFocusChange func(bool)
 }
 
 func (EditableText) CreateState() State { return &editableState{} }
@@ -98,6 +101,12 @@ type editableState struct {
 	stopBlink chan struct{}
 	ro        *render.RenderEditable
 	dragFrom  int
+
+	// IME composition in progress: the preedit replaces the selection on
+	// screen until it's committed.
+	composing     bool
+	compose       string
+	composeCursor int // byte offset into compose
 }
 
 func (s *editableState) w() EditableText { return WidgetOf[EditableText](s) }
@@ -121,6 +130,37 @@ func (s *editableState) InitState() {
 	s.node.OnKey = s.onKey
 	s.node.OnText = s.onText
 	s.node.OnFocusChange = s.onFocus
+	s.node.IMERect = s.imeRect
+}
+
+// onIME shows the preedit inline and inserts the committed text.
+func (s *editableState) onIME(e IMEEvent) {
+	switch e.Kind {
+	case IMEStart:
+		s.composing, s.compose, s.composeCursor = true, "", 0
+	case IMEUpdate:
+		s.composing = true
+		s.compose = e.Text
+		s.composeCursor = clampOffset(e.Text, e.Cursor)
+	case IMEEnd:
+		s.composing, s.compose, s.composeCursor = false, "", 0
+		if e.Text != "" {
+			s.onText(e.Text)
+			return
+		}
+	}
+	s.restartBlink()
+	s.SetState(nil)
+}
+
+// imeRect is the caret in window coordinates, for the candidate window.
+func (s *editableState) imeRect() (geom.Rect, bool) {
+	if s.ro == nil || s.ro.Owner() == nil {
+		return geom.Rect{}, false
+	}
+	cr := s.ro.CaretRect()
+	o := render.GlobalOrigin(s.ro)
+	return geom.Rect{X: o.X + cr.X, Y: o.Y + cr.Y, W: cr.W, H: cr.H}, true
 }
 
 func (s *editableState) Dispose() { s.blink(false) }
@@ -178,6 +218,7 @@ func (s *editableState) onText(t string) {
 	if s.w().ReadOnly {
 		return
 	}
+	s.composing, s.compose = false, "" // typed text ends any composition
 	t = strings.Map(func(r rune) rune {
 		if r == '\n' && s.w().Multiline {
 			return r
@@ -207,6 +248,13 @@ func (s *editableState) onKey(e KeyEvent) bool {
 		c.notify()
 	}
 	lo, hi := c.selRange()
+	if s.composing {
+		// The input method owns editing keys while composing.
+		switch e.Key {
+		case KeyBackspace, KeyDelete, KeyLeft, KeyRight, KeyUp, KeyDown, KeyHome, KeyEnd, KeyEnter:
+			return true
+		}
+	}
 	switch {
 	case e.Mods.Shortcut() && e.Key == KeyA:
 		c.base, c.extent = 0, len(c.text)
@@ -332,6 +380,10 @@ func wordEnd(s string, i int) int {
 const bullet = "•"
 
 func (s *editableState) display() string {
+	if s.composing {
+		lo, hi := s.ctrl.selRange()
+		return s.ctrl.text[:lo] + s.compose + s.ctrl.text[hi:]
+	}
 	if !s.w().Obscure {
 		return s.ctrl.text
 	}
@@ -371,15 +423,29 @@ func (s *editableState) Build(BuildContext) Widget {
 		sel = cursor.WithAlpha(0.3)
 	}
 	minLines := max(w.MinLines, 1)
+	// Password and read-only fields don't take IME input.
+	if w.Obscure || w.ReadOnly {
+		s.node.OnIME = nil
+		s.composing, s.compose = false, ""
+	} else {
+		s.node.OnIME = s.onIME
+	}
 	ed := editable{
 		text: s.display(), style: style,
 		base: s.displayToText(c.base, true), extent: s.displayToText(c.extent, true),
 		focused: s.node.HasFocus(), caret: s.caretOn,
 		cursor: cursor, selection: sel, minLines: minLines, state: s,
+		wrap: w.Multiline && !w.NoWrap, composeStart: -1, composeEnd: -1,
+	}
+	if s.composing {
+		lo, _ := c.selRange()
+		ed.base, ed.extent = lo+s.composeCursor, lo+s.composeCursor
+		ed.composeStart, ed.composeEnd = lo, lo+len(s.compose)
 	}
 	return Focus{Node: s.node, Autofocus: w.Autofocus, Child: MouseRegion{Cursor: CursorText, Child: GestureDetector{
 		OnTapDown: func(d TapDetails) {
 			s.node.RequestFocus()
+			s.composing, s.compose = false, "" // clicking away drops the preedit
 			if s.ro != nil {
 				i := s.displayToText(s.ro.OffsetAt(d.Local), false)
 				s.dragFrom = i
@@ -414,6 +480,9 @@ type editable struct {
 	focused, caret    bool
 	cursor, selection geom.Color
 	minLines          int
+	wrap              bool
+	composeStart      int
+	composeEnd        int
 	state             *editableState
 }
 
@@ -426,5 +495,7 @@ func (w editable) CreateRenderObject(BuildContext) render.RenderObject {
 func (w editable) UpdateRenderObject(_ BuildContext, ro render.RenderObject) {
 	r := ro.(*render.RenderEditable)
 	w.state.ro = r
+	r.SetWrap(w.wrap)
+	r.SetComposing(w.composeStart, w.composeEnd)
 	r.Update(w.text, w.style, w.base, w.extent, w.focused, w.caret, w.cursor, w.selection, w.minLines)
 }

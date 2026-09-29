@@ -54,6 +54,7 @@ func (r *RenderParagraph) PerformLayout(c geom.Constraints) geom.Size {
 			MaxWidth: c.MaxW, MaxLines: r.maxLines, Ellipsis: r.ellipsis,
 		})
 		r.paraWidth = c.MaxW
+		InvalidatePaint(r) // may wrap differently even at the same size
 	}
 	size := c.Constrain(r.para.Size())
 	r.para.SetAlign(r.align, size.W)

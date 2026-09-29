@@ -28,6 +28,8 @@ type App struct {
 	input      *inputQueue
 	window     *nativeWindow
 	resources  *resources.Set
+	imeEnabled bool
+	imePos     [2]int
 }
 
 // NewApp creates an application with the given config.
@@ -125,6 +127,7 @@ func (a *App) frame(dc *gogpu.Context) {
 	a.buildOwner.FlushBuild()
 	a.pipeline.FlushLayout(window)
 	canvas := a.pipeline.FlushPaint(window)
+	a.syncIME(scale)
 
 	// 4. GPU
 	view := dc.SurfaceView()

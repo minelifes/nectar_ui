@@ -18,6 +18,10 @@ type Config struct {
 	// bars). macOS and Windows take the icon from the app bundle / .exe
 	// instead; `nectar build` puts it there.
 	Icon image.Image
+	// CustomTitleBar lets the app draw the title bar: the content fills
+	// the whole window, including the strip with the window buttons. See
+	// WithCustomTitleBar.
+	CustomTitleBar bool
 
 	mounts []resourceMount
 }
@@ -41,6 +45,24 @@ func (c Config) WithTitle(t string) Config           { c.Title = t; return c }
 func (c Config) WithSize(w, h int) Config            { c.Width, c.Height = w, h; return c }
 func (c Config) WithBackground(bg geom.Color) Config { c.Background = bg; return c }
 func (c Config) WithIcon(img image.Image) Config     { c.Icon = img; return c }
+
+// WithCustomTitleBar makes the app's content fill the window's title-bar
+// area, so it can put its own title, tabs or buttons next to the window
+// buttons (widgets.TitleBar does the layout):
+//
+//   - macOS: the title bar becomes transparent and the traffic lights stay,
+//     drawn by the system over the top-left of the content. The system
+//     zone (top 28 px) still drags the window. The native title text is
+//     hidden; Window.Title/SetTitle keep working for the app.
+//   - Windows and Linux (X11): the window is frameless. The app draws
+//     minimize / maximize / close (widgets.WindowButtons, added by TitleBar),
+//     widgets.WindowDragArea marks what drags the window, and the outer
+//     6 px resize it.
+//   - Wayland: not supported by the windowing layer yet; the native title
+//     bar stays and TitleBar is an ordinary bar below it.
+//
+// Widgets can check what they got with widgets.WindowOf(ctx).TitleBar().
+func (c Config) WithCustomTitleBar(on bool) Config { c.CustomTitleBar = on; return c }
 
 // WithResources mounts fsys under prefix ("" = the root) into the app's
 // resources when the window opens (unmounted when it closes). Widgets read

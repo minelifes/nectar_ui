@@ -30,6 +30,7 @@ type App struct {
 	resources  *resources.Set
 	imeEnabled bool
 	imePos     [2]int
+	hits       *hitTester // frameless title bars
 }
 
 // NewApp creates an application with the given config.
@@ -45,7 +46,13 @@ func (a *App) Run(root widgets.Widget) error {
 	if a.config.Icon != nil {
 		cfg = cfg.WithIcon(a.config.Icon)
 	}
+	kind := platformTitleBar(a.config)
+	cfg = applyTitleBar(cfg, kind)
 	a.gpuApp = gogpu.NewApp(cfg)
+	a.hits = &hitTester{app: a}
+	if kind == titleBarFrameless {
+		a.gpuApp.SetHitTestCallback(a.hits.hit)
+	}
 
 	a.buildOwner = widgets.NewBuildOwner()
 	a.pipeline = render.NewPipelineOwner()
@@ -123,10 +130,13 @@ func (a *App) frame(dc *gogpu.Context) {
 	a.window.resized(int(window.W+0.5), int(window.H+0.5))
 
 	// 0. input  1. build  2. layout  3. paint
+	// (the OS hit test for frameless title bars reads the tree: keep it out)
+	a.hits.mu.Lock()
 	a.processInput()
 	a.buildOwner.FlushBuild()
 	a.pipeline.FlushLayout(window)
 	canvas := a.pipeline.FlushPaint(window)
+	a.hits.mu.Unlock()
 	a.syncIME(scale)
 
 	// 4. GPU

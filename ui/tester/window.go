@@ -1,5 +1,11 @@
 package tester
 
+import (
+	"github.com/minelifes/nectar_ui/ui/geom"
+	"github.com/minelifes/nectar_ui/ui/render"
+	"github.com/minelifes/nectar_ui/ui/widgets"
+)
+
 // Window is the tester's stand-in for the native window (what
 // widgets.WindowOf returns in tests). SetSize resizes the test surface
 // (Tester.Size) for the next Pump, clamped like a real window; the other
@@ -13,6 +19,32 @@ type Window struct {
 	Minimized, Closed      bool
 	// Resizes counts SetSize calls that changed the size.
 	Resizes int
+
+	// TitleBarInfo is what TitleBar returns; set it to test custom title
+	// bars (see MacTitleBar / FramelessTitleBar), then check presses with
+	// HitTest.
+	TitleBarInfo widgets.TitleBarInfo
+
+	subs    map[int]func()
+	nextSub int
+}
+
+// Subscribe implements widgets.Listenable (widgets.WatchWindow): fn runs
+// when Maximize or SetFullscreen change the state.
+func (w *Window) Subscribe(fn func()) func() {
+	if w.subs == nil {
+		w.subs = map[int]func(){}
+	}
+	id := w.nextSub
+	w.nextSub++
+	w.subs[id] = fn
+	return func() { delete(w.subs, id) }
+}
+
+func (w *Window) changed() {
+	for _, fn := range w.subs {
+		fn()
+	}
 }
 
 func (w *Window) Size() (int, int) {
@@ -56,8 +88,39 @@ func (w *Window) SetMaxSize(width, height int) {
 func (w *Window) Title() string         { return w.title }
 func (w *Window) SetTitle(title string) { w.title = title }
 func (w *Window) IsFullscreen() bool    { return w.Fullscreen }
-func (w *Window) SetFullscreen(on bool) { w.Fullscreen = on }
-func (w *Window) IsMaximized() bool     { return w.Maximized }
-func (w *Window) Maximize()             { w.Maximized = !w.Maximized }
-func (w *Window) Minimize()             { w.Minimized = true }
-func (w *Window) Close()                { w.Closed = true }
+func (w *Window) SetFullscreen(on bool) {
+	if w.Fullscreen != on {
+		w.Fullscreen = on
+		w.changed()
+	}
+}
+func (w *Window) IsMaximized() bool { return w.Maximized }
+func (w *Window) Maximize()         { w.Maximized = !w.Maximized; w.changed() }
+func (w *Window) Minimize()         { w.Minimized = true }
+func (w *Window) Close()            { w.Closed = true }
+
+func (w *Window) TitleBar() widgets.TitleBarInfo { return w.TitleBarInfo }
+
+// Title bars of the platforms, for TitleBarInfo.
+var (
+	// MacTitleBar: content under a transparent title bar, traffic lights
+	// drawn by the OS.
+	MacTitleBar = widgets.TitleBarInfo{Custom: true, SystemButtons: true, Height: 28, Leading: 76}
+	// FramelessTitleBar: Windows / X11, the app draws the window buttons.
+	FramelessTitleBar = widgets.TitleBarInfo{Custom: true}
+)
+
+// HitTest reports what the OS would do with a press at (x, y) — drag the
+// window ("caption"), resize it, or pass it to the app ("client") — the way
+// the real window answers the OS hit test with a custom title bar.
+func (w *Window) HitTest(x, y float32) render.WindowHit {
+	border := float32(0)
+	if w.TitleBarInfo.Custom && !w.TitleBarInfo.SystemButtons && !w.Maximized && !w.Fullscreen {
+		border = ResizeBorder
+	}
+	return render.WindowHitAt(w.t.Pipeline.Root(), w.t.Size, geom.Pt(x, y), border)
+}
+
+// ResizeBorder is how close to the edge of a frameless window a press
+// resizes it (logical px).
+const ResizeBorder float32 = 6

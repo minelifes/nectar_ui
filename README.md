@@ -242,6 +242,37 @@ w, h := win.Size()              // as of the last frame
 - **Outside the app:** `ui.App.Window()` returns the same handle.
 - **Tests:** `tester.Tester.Window` fakes it. `SetSize` really resizes the test surface (`tt.Size`), clamped to the min/max size, and title, fullscreen and maximize are recorded for assertions.
 
+## Custom title bar
+
+`WithCustomTitleBar(true)` lets the app draw into the strip with the window buttons (title, tabs, toolbar buttons next to close / minimize / zoom):
+
+```go
+cfg := ui.DefaultConfig().WithTitle("Aether").WithCustomTitleBar(true)
+
+widgets.Column{Cross: widgets.CrossStretch, Children: []widgets.Widget{
+	material.TitleBar{
+		Title:   "Aether",
+		Leading: []widgets.Widget{widgets.Icon{Icon: icons.Terminal}},
+		Center:  widgets.Text{Text: "Welcome & Quick Start"}, // centered on the window
+		Actions: []widgets.Widget{material.IconButton{Icon: icons.Tune, OnPressed: openSettings}},
+	},
+	widgets.Expanded{Child: body},
+}}
+```
+
+| Platform | What happens |
+| --- | --- |
+| macOS | The title bar turns transparent and the content goes under it. The system still draws the traffic lights at the top left (they sit in the top 28 px) and hides the native title text. |
+| Windows, Linux (X11) | The window is frameless. `TitleBar` adds drawn minimize / maximize (restore) / close buttons, the empty parts of the bar move the window (double-click maximizes on Windows), and the outer 6 px resize it. |
+| Linux (Wayland) | Not supported by gogpu yet (it can't move a frameless window there). The native title bar stays and `TitleBar` is an ordinary bar below it. |
+
+- **`widgets.TitleBar`:** the theme-free version. `Child` goes between the system insets, `Center` is centered on the window, and `Buttons` styles the drawn window buttons. `material.TitleBar` wraps it with theme colors and a 40 px default height.
+- **Build your own:** `widgets.WindowOf(ctx).TitleBar()` returns `Custom`, `SystemButtons`, `Height` and the `Leading`/`Trailing` widths the system buttons cover. `widgets.WindowDragArea` makes any widget move the window, and buttons and text fields inside it keep their clicks. `widgets.WindowButtons` are the drawn window buttons.
+- **Reacting to window state:** `widgets.WatchWindow(ctx)` is `WindowOf` that also rebuilds when the window is maximized or goes fullscreen (the maximize glyph turns into restore, and on macOS the traffic-light inset goes away in fullscreen).
+- **Titles:** `Window.Title` / `SetTitle` keep working for the app. On macOS the OS title text stays empty.
+- **Tests:** `tester.WithTitleBar(tester.MacTitleBar)` or `tester.FramelessTitleBar` picks the platform, and `tt.Window.HitTest(x, y)` says whether a press would drag the window (`caption`), resize it, or reach the app (`client`).
+- **Try it:** `CGO_ENABLED=0 go run ./examples/titlebar`.
+
 ## Responsive layouts: `LayoutBuilder`
 
 `LayoutBuilder` builds its child during layout, from the constraints its parent gives it (like Flutter's):

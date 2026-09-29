@@ -4,6 +4,8 @@ import (
 	"sync"
 
 	"github.com/gogpu/gogpu"
+
+	"github.com/minelifes/nectar_ui/ui/widgets"
 )
 
 // nativeWindow implements widgets.Window on top of gogpu. Widget code runs
@@ -11,7 +13,8 @@ import (
 // main thread (AppKit requires it), so setters queue work that apply runs
 // from gogpu's OnUpdate, which is on the main thread.
 type nativeWindow struct {
-	app *gogpu.App
+	app      *gogpu.App
+	titleBar titleBarKind
 
 	mu            sync.Mutex
 	pending       []func(*gogpu.App)
@@ -19,10 +22,43 @@ type nativeWindow struct {
 	title         string
 	fullscreen    bool
 	maximized     bool
+	subs          map[int]func()
+	nextSub       int
+}
+
+// Subscribe implements widgets.Listenable: fn runs after the window is
+// maximized / restored or enters / leaves fullscreen (widgets.WatchWindow).
+func (n *nativeWindow) Subscribe(fn func()) func() {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.subs == nil {
+		n.subs = map[int]func(){}
+	}
+	id := n.nextSub
+	n.nextSub++
+	n.subs[id] = fn
+	return func() {
+		n.mu.Lock()
+		delete(n.subs, id)
+		n.mu.Unlock()
+	}
 }
 
 func newNativeWindow(app *gogpu.App, c Config) *nativeWindow {
-	return &nativeWindow{app: app, width: c.Width, height: c.Height, title: c.Title}
+	return &nativeWindow{app: app, width: c.Width, height: c.Height, title: c.Title, titleBar: platformTitleBar(c)}
+}
+
+// osTitle is the title shown by the OS: empty when a custom macOS title bar
+// hides it (the app draws its own).
+func (n *nativeWindow) osTitle(t string) string {
+	if n.titleBar == titleBarMac {
+		return ""
+	}
+	return t
+}
+
+func (n *nativeWindow) TitleBar() widgets.TitleBarInfo {
+	return titleBarInfo(n.titleBar, n.IsFullscreen())
 }
 
 // do queues op for the main thread and wakes the loop.
@@ -49,8 +85,18 @@ func (n *nativeWindow) apply() {
 	if w > 0 && h > 0 {
 		n.width, n.height = w, h
 	}
+	changed := n.fullscreen != fs || n.maximized != max
 	n.fullscreen, n.maximized = fs, max
+	var subs []func()
+	if changed {
+		for _, fn := range n.subs {
+			subs = append(subs, fn)
+		}
+	}
 	n.mu.Unlock()
+	for _, fn := range subs {
+		fn()
+	}
 }
 
 // resized records the size seen by the frame (render thread).
@@ -88,7 +134,8 @@ func (n *nativeWindow) SetTitle(t string) {
 	n.mu.Lock()
 	n.title = t
 	n.mu.Unlock()
-	n.do(func(a *gogpu.App) { a.SetTitle(t) })
+	os := n.osTitle(t)
+	n.do(func(a *gogpu.App) { a.SetTitle(os) })
 }
 
 func (n *nativeWindow) IsFullscreen() bool {

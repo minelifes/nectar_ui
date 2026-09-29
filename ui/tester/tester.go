@@ -63,6 +63,12 @@ func WithResources(prefix string, fsys fs.FS) Option {
 	return func(t *Tester) { t.Resources.Mount(prefix, fsys) }
 }
 
+// WithTitleBar makes Window.TitleBar report info from the first frame,
+// e.g. tester.MacTitleBar or tester.FramelessTitleBar.
+func WithTitleBar(info widgets.TitleBarInfo) Option {
+	return func(t *Tester) { t.Window.TitleBarInfo = info }
+}
+
 // New mounts app in a w×h (logical px) surface and runs the first frame.
 func New(app widgets.Widget, w, h int, opts ...Option) *Tester {
 	t := &Tester{

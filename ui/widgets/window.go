@@ -33,6 +33,10 @@ type Window interface {
 	Minimize()
 	// Close asks the window to close (like the close button).
 	Close()
+
+	// TitleBar describes the title-bar area when the app draws its own
+	// (ui.Config.WithCustomTitleBar); the zero value otherwise.
+	TitleBar() TitleBarInfo
 }
 
 // WindowOf returns the window hosting ctx's tree. It never returns nil:
@@ -45,17 +49,29 @@ func WindowOf(ctx BuildContext) Window {
 	return noWindow{}
 }
 
+// WatchWindow is WindowOf that also rebuilds ctx's element when the
+// window's state changes (maximized, fullscreen, and with them the title
+// bar insets). Call it from Build, like Listen.
+func WatchWindow(ctx BuildContext) Window {
+	win := WindowOf(ctx)
+	if l, ok := win.(Listenable); ok {
+		Listen(ctx, l)
+	}
+	return win
+}
+
 type noWindow struct{}
 
-func (noWindow) Size() (int, int)    { return 0, 0 }
-func (noWindow) SetSize(int, int)    {}
-func (noWindow) SetMinSize(int, int) {}
-func (noWindow) SetMaxSize(int, int) {}
-func (noWindow) Title() string       { return "" }
-func (noWindow) SetTitle(string)     {}
-func (noWindow) IsFullscreen() bool  { return false }
-func (noWindow) SetFullscreen(bool)  {}
-func (noWindow) IsMaximized() bool   { return false }
-func (noWindow) Maximize()           {}
-func (noWindow) Minimize()           {}
-func (noWindow) Close()              {}
+func (noWindow) Size() (int, int)       { return 0, 0 }
+func (noWindow) SetSize(int, int)       {}
+func (noWindow) SetMinSize(int, int)    {}
+func (noWindow) SetMaxSize(int, int)    {}
+func (noWindow) Title() string          { return "" }
+func (noWindow) SetTitle(string)        {}
+func (noWindow) IsFullscreen() bool     { return false }
+func (noWindow) SetFullscreen(bool)     {}
+func (noWindow) IsMaximized() bool      { return false }
+func (noWindow) Maximize()              {}
+func (noWindow) Minimize()              {}
+func (noWindow) Close()                 {}
+func (noWindow) TitleBar() TitleBarInfo { return TitleBarInfo{} }

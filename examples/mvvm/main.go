@@ -3,6 +3,7 @@
 // bindings, not the page.
 //
 //	CGO_ENABLED=0 go run ./examples/mvvm
+//	go run ./cmd/nectar dev -pkg ./examples/mvvm   # edit the code: todos survive
 package main
 
 import (
@@ -46,9 +47,12 @@ type TodoVM struct {
 
 func NewTodoVM() *TodoVM {
 	vm := &TodoVM{
-		Todos:    mvvm.NewList(Todo{ID: 1, Title: "Try the MVVM bindings"}, Todo{ID: 2, Title: "Write a view model"}),
-		HideDone: mvvm.NewProperty(false),
-		nextID:   3,
+		// Keep: under `nectar dev` the list and filter survive code reloads.
+		Todos:    mvvm.NewList(Todo{ID: 1, Title: "Try the MVVM bindings"}, Todo{ID: 2, Title: "Write a view model"}).Keep("todos"),
+		HideDone: mvvm.NewProperty(false).Keep("hideDone"),
+	}
+	for _, t := range vm.Todos.Get() {
+		vm.nextID = max(vm.nextID, t.ID+1)
 	}
 	vm.Remaining = mvvm.Own(&vm.ViewModel, mvvm.NewComputed(func() int {
 		n := 0

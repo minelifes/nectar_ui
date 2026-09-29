@@ -6,6 +6,7 @@
 //	nectar new -template explorer tools/browser
 //	nectar new -module github.com/me/notes -title "Notes" -seed "#0B57D0" notes
 //	nectar templates                      # list templates
+//	nectar dev                            # run ./, restart with state kept on code changes
 //	nectar build                          # package ./ as a desktop app (+ icon)
 //	nectar build -os windows -arch amd64  # cross-build a Windows .exe
 //	nectar icon -seed "#0B57D0"           # regenerate assets/icon.png
@@ -35,6 +36,8 @@ func main() {
 		err = cmdNew(args)
 	case "build":
 		err = cmdBuild(args)
+	case "dev", "run":
+		err = cmdDev(args)
 	case "icon":
 		err = cmdIcon(args)
 	case "templates", "list":
@@ -61,6 +64,7 @@ func usage() {
 
 Usage:
   nectar new [flags] <dir>   create an app in <dir>
+  nectar dev [flags] [dir]   run the app, restarting it (state kept) when code changes
   nectar build [flags] [dir] package an app: macOS .app, Windows .exe, Linux + .desktop
   nectar icon [flags]        generate a default app icon (assets/icon.png)
   nectar templates           list the app templates

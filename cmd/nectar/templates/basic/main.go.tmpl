@@ -24,7 +24,8 @@ func icon() image.Image {
 
 func main() {
 	cfg := ui.DefaultConfig().WithTitle([[printf "%q" .Title]]).WithSize(720, 480).WithBackground(geom.Hex(0xF6F7FB)).WithIcon(icon()).
-		WithResources("", assets.FS)
+		WithResources("", assets.FS).
+		WithDevResources("", "assets") // under `nectar dev`: live from disk
 	if err := ui.NewApp(cfg).Run(app.New()); err != nil {
 		log.Fatal(err)
 	}

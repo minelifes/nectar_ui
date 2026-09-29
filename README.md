@@ -14,6 +14,7 @@ go test ./...          # GPU test falls back to the CPU adapter when no GPU is p
 go install github.com/minelifes/nectar_ui/cmd/nectar@latest
 nectar new myapp                     # Material 3 starter in ./myapp
 cd myapp && CGO_ENABLED=0 go run .
+nectar dev                           # or run it with hot reload (see below)
 ```
 
 `nectar new` writes a ready-to-run module that imports the engine from GitHub (`go get github.com/minelifes/nectar_ui@<version>` + `go mod tidy`).
@@ -51,6 +52,7 @@ Name, bundle id, version and icon come from the app's `nectar.json`. The icon is
 ```
 ui            App: window + frame loop (build → layout → paint → GPU)
 ├── mvvm      view models: observable properties, lists, bindings
+├── hotreload `nectar dev` support: state kept across restarts, file watching
 ├── widgets   Widget / Element tree, State, BuildOwner, basic widgets
 ├── gpu       wgpu pipeline, WGSL uber-shader, batching, atlas upload
 ├── render    RenderObject tree: layout (constraints), paint → Canvas display list
@@ -152,6 +154,21 @@ func (CounterPage) Build(ctx w.BuildContext) w.Widget {
 - A child whose new widget equals the old one is skipped with its whole subtree. Widgets are compared by value: fields, nested widgets and slices (so `Row{Children: …}` with the same children is skipped), pointers by identity. Funcs and maps always count as changed, as does a slice that reuses the old one's backing array (it may have been edited in place), so build new slices instead of mutating old ones.
 - Built-in render widgets mark their render object only when a property really changes, so a rebuild that changes nothing visible (say, a new `OnTap` closure) doesn't make the surrounding repaint boundary repaint. Custom render widgets that do the same (call `MarkNeedsPaint` / `MarkNeedsLayout` themselves) can say so with a `MarksOwnPaint()` method; without it the engine repaints the boundary after each update to be safe.
 
+## Hot reload: `nectar dev`
+
+Go can't swap code into a running process, so `nectar dev` does the next best thing: it rebuilds and restarts the app whenever a `.go` file changes (usually a second or two), and carries its state across the restart.
+
+```sh
+nectar dev                  # in the app folder; or: nectar dev path/to/app -- app args
+nectar dev -pkg ./cmd/app   # the main package, if it isn't the folder itself
+```
+
+- **Build errors** are printed and the running app stays up; fix the code, save, and it restarts.
+- **The window** keeps its size (or maximized / fullscreen).
+- **State you opt in** survives: `mvvm.NewProperty(0).Keep("counter")`, `mvvm.NewList[T]().Keep("todos")`, or `hotreload.Keep("page.tab", &s.tab)` for any JSON-serializable variable (e.g. in `InitState`). The old process saves these before quitting; the new one restores each when it registers the same key. Everything else starts fresh, like a normal launch.
+- **Assets reload live, without a restart:** `cfg.WithResources("", assets.FS).WithDevResources("", "assets")` mounts the `assets` folder from disk under `nectar dev` (release builds keep using the embedded copy). Saving a file there evicts its images from the cache and rebuilds the whole tree, keeping all state (`Root.Reassemble`; a `State` can implement `Reassemble()` to drop its own caches). Apps made with `nectar new` are set up this way.
+- Outside `nectar dev` all of this is a no-op, so the calls stay in release code. The app learns it runs under `nectar dev` from `NECTAR_DEV=1` (see package `hotreload`), and the tool asks it to save and quit over stdin.
+
 ## Input
 
 Pointer events from gogpu are queued and processed at the start of the next frame, on the UI thread, before build.
@@ -194,7 +211,7 @@ There are three layers, and each sees the files of the ones above it:
 
 `AssetImage` resolves through this chain, so the same name can be a different file in different subtrees without the image cache mixing them up.
 
-**While developing**, use `WithResources("", os.DirFS("assets"))` so edits show up without rebuilding. Apps made with `nectar new` embed `assets/` and mount it in `main.go`.
+**While developing**, add `WithDevResources("", "assets")`: under `nectar dev` the folder is read from disk and edits show up right away (see Hot reload). Apps made with `nectar new` embed `assets/` and mount it both ways in `main.go`.
 
 **Tests** mount the same way: `tester.New(app, w, h, tester.WithResources("", files))`; the resources are then available as `tt.Resources`.
 

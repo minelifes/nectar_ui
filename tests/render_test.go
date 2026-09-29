@@ -2,10 +2,10 @@ package tests
 
 import (
 	"context"
-	"image"
-	"image/png"
 	"github.com/minelifes/nectar_ui/ui/gpu"
 	"github.com/minelifes/nectar_ui/ui/widgets/text"
+	"image"
+	"image/png"
 	"os"
 	"testing"
 
@@ -129,7 +129,7 @@ func TestRenderRectAndText(t *testing.T) {
 	app := widgets.Container{
 		Padding: geom.Insets(20),
 		Child: widgets.Column{Spacing: 12, Cross: widgets.CrossStart, Children: []widgets.Widget{
-			widgets.Container{Width: 80, Height: 40, Color: geom.Hex(0xff0000), Radius: 8},
+			widgets.Container{Width: 80, Height: 40, Color: geom.Hex(0xff0000), Border: &geom.Border{Radius: 8}},
 			widgets.Text{Text: "Hello", Style: text.Style{Size: 32, Color: geom.Hex(0x0000ff)}},
 		}},
 	}

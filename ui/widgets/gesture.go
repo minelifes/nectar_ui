@@ -54,6 +54,7 @@ func (w GestureDetector) CreateRenderObject(BuildContext) render.RenderObject {
 
 // UpdateRenderObject swaps in the new closures. Gesture state (a tap in
 // progress) lives in the render object, so it survives rebuilds.
+func (GestureDetector) MarksOwnPaint() {}
 func (w GestureDetector) UpdateRenderObject(_ BuildContext, ro render.RenderObject) {
 	ro.(*render.RenderGestureDetector).GestureCallbacks = w.callbacks()
 }
@@ -75,6 +76,7 @@ func (w MouseRegion) CreateRenderObject(BuildContext) render.RenderObject {
 	return r
 }
 
+func (MouseRegion) MarksOwnPaint() {}
 func (w MouseRegion) UpdateRenderObject(_ BuildContext, ro render.RenderObject) {
 	r := ro.(*render.RenderMouseRegion)
 	r.CursorShape, r.OnEnter, r.OnExit, r.OnHover = w.Cursor, w.OnEnter, w.OnExit, w.OnHover
@@ -93,6 +95,7 @@ func (w Listener) CreateRenderObject(BuildContext) render.RenderObject {
 	return &render.RenderPointerListener{OnEvent: w.OnEvent}
 }
 
+func (Listener) MarksOwnPaint() {}
 func (w Listener) UpdateRenderObject(_ BuildContext, ro render.RenderObject) {
 	ro.(*render.RenderPointerListener).OnEvent = w.OnEvent
 }

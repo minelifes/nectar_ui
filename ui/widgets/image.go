@@ -205,6 +205,7 @@ func (b imageBox) CreateRenderObject(BuildContext) render.RenderObject {
 	return r
 }
 
+func (imageBox) MarksOwnPaint() {}
 func (b imageBox) UpdateRenderObject(_ BuildContext, ro render.RenderObject) {
 	r := ro.(*render.RenderImage)
 	relayout := r.Image != b.img || r.Width != b.width || r.Height != b.height

@@ -221,6 +221,7 @@ func (w splitLayout) CreateRenderObject(BuildContext) render.RenderObject {
 	return r
 }
 
+func (splitLayout) MarksOwnPaint() {}
 func (w splitLayout) UpdateRenderObject(_ BuildContext, ro render.RenderObject) {
 	r := ro.(*render.RenderSplit)
 	st := w.state

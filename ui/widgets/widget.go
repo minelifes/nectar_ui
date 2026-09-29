@@ -49,6 +49,17 @@ type RenderObjectWidget interface {
 	UpdateRenderObject(ctx BuildContext, ro render.RenderObject)
 }
 
+// MarksOwnPaint is implemented by RenderObjectWidgets whose
+// UpdateRenderObject calls render.MarkNeedsPaint or MarkNeedsLayout itself
+// whenever the update changes what the render object draws. Without it the
+// engine plays safe and invalidates the repaint boundaries around the
+// render object after every update, so a rebuild that changes only, say, a
+// callback still repaints the whole boundary (a scroll view's content).
+// The method is a marker and is never called.
+type MarksOwnPaint interface {
+	MarksOwnPaint()
+}
+
 // SingleChildWidget is a RenderObjectWidget with (at most) one child. Its
 // render object must embed render.SingleChild.
 type SingleChildWidget interface {
@@ -83,19 +94,73 @@ func keyOf(w Widget) any {
 }
 
 // sameWidget reports whether w is identical to old, so the subtree can be
-// skipped entirely. True for the same pointer, or equal comparable values
-// (structs without slices/maps/funcs). This is Go's version of Flutter's
-// const widgets: hoisting or reusing a widget value avoids rebuilding it.
-// It relies on widgets being immutable once built.
+// skipped entirely. This is Go's version of Flutter's const widgets:
+// hoisting or reusing a widget value avoids rebuilding it, and so does
+// building an equal one. It relies on widgets being immutable once built.
+//
+// Values are compared structurally: pointers, channels by identity; funcs
+// and maps are never equal (unless both nil), since a closure may capture
+// new state; slices element by element (so a Row whose children didn't
+// change is skipped too). A slice that shares its backing array with the
+// old one counts as changed: it may have been modified in place. The
+// comparison gives up (reports a change) after sameWidgetBudget values, so
+// comparing a huge unchanged tree never costs more than updating it.
 func sameWidget(old, w Widget) bool {
 	a, b := reflect.ValueOf(old), reflect.ValueOf(w)
 	if a.Type() != b.Type() {
 		return false
 	}
-	if a.Kind() == reflect.Pointer {
-		return a.Pointer() == b.Pointer()
+	budget := sameWidgetBudget
+	return sameValue(a, b, &budget)
+}
+
+// sameWidgetBudget caps how many values one sameWidget call compares.
+const sameWidgetBudget = 512
+
+// sameValue compares a and b, which have the same type.
+func sameValue(a, b reflect.Value, budget *int) bool {
+	if *budget--; *budget < 0 {
+		return false
 	}
-	return a.Comparable() && b.Comparable() && a.Equal(b)
+	switch a.Kind() {
+	case reflect.Pointer, reflect.UnsafePointer, reflect.Chan:
+		return a.Pointer() == b.Pointer()
+	case reflect.Func, reflect.Map:
+		return a.IsNil() && b.IsNil()
+	case reflect.Interface:
+		if a.IsNil() || b.IsNil() {
+			return a.IsNil() && b.IsNil()
+		}
+		ea, eb := a.Elem(), b.Elem()
+		return ea.Type() == eb.Type() && sameValue(ea, eb, budget)
+	case reflect.Struct:
+		for i := range a.NumField() {
+			if !sameValue(a.Field(i), b.Field(i), budget) {
+				return false
+			}
+		}
+		return true
+	case reflect.Slice:
+		if a.Len() != b.Len() {
+			return false
+		}
+		if a.Len() == 0 {
+			return true
+		}
+		if a.Pointer() == b.Pointer() {
+			return false // same backing array: may have been edited in place
+		}
+		fallthrough
+	case reflect.Array:
+		for i := range a.Len() {
+			if !sameValue(a.Index(i), b.Index(i), budget) {
+				return false
+			}
+		}
+		return true
+	default:
+		return a.Equal(b)
+	}
 }
 
 // canUpdate reports whether an element built for old can be reused for w.

@@ -106,6 +106,7 @@ func (w rootWidget) CreateRenderObject(BuildContext) render.RenderObject {
 	return &render.RenderView{Background: w.background}
 }
 
+func (rootWidget) MarksOwnPaint() {}
 func (w rootWidget) UpdateRenderObject(_ BuildContext, ro render.RenderObject) {
 	v := ro.(*render.RenderView)
 	if v.Background != w.background {

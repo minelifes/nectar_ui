@@ -110,19 +110,34 @@ So handlers can call `SetState` directly.
 
 ## Images and resources
 
-**Resources** (`ui/resources`) are files shipped inside the app. Embed a folder and mount it once; everything can then read by name, wherever the app is installed:
+**Resources** (`ui/resources`) are files shipped inside the app. Embed a folder and mount it when the window opens; widgets then read by name through their context, wherever the app is installed:
 
 ```go
 //go:embed images fonts
 var files embed.FS
 
-resources.Mount("", files)             // later mounts override earlier ones
-resources.Mount("plugin", pluginFiles) // under plugin/; returns an unmount func
-data, err := resources.ReadFile("images/logo.png")
-resources.FS()                         // merged io/fs view (ReadDir, Stat, Glob, …)
+cfg := ui.DefaultConfig().
+    WithResources("", files).            // at the root
+    WithResources("charts", chartFiles)  // under charts/; later mounts win
+
+// in any widget
+data, err := widgets.ResourcesOf(ctx).ReadFile("charts/bar.json")
+w.Image{Source: w.AssetImage{Name: "images/logo.png"}}
 ```
 
-In development you can mount the folder on disk instead, so edits show up without rebuilding: `resources.Mount("", os.DirFS("assets"))`. Apps made with `nectar new` do the embedding for you in `assets/assets.go`.
+`ResourcesOf(ctx)` returns a `*resources.Set`. A Set works as an `io/fs` filesystem, and has `ReadFile`, `ReadDir`, `Stat`, `Exists` and `Mount`.
+
+There are three layers, and each sees the files of the ones above it:
+
+1. **Global:** `resources.Mount(…)`, for libraries that register files in `init()`.
+2. **The app:** `cfg.WithResources(…)`. These files are mounted when the window opens, go away when it closes, and are also available as `app.Resources()`.
+3. **A subtree:** `widgets.Resources{Prefix: "charts", FS: chartFiles, Child: …}` adds files for its children only, and removes them when it leaves the tree.
+
+`AssetImage` resolves through this chain, so the same name can be a different file in different subtrees without the image cache mixing them up.
+
+**While developing**, use `WithResources("", os.DirFS("assets"))` so edits show up without rebuilding. Apps made with `nectar new` embed `assets/` and mount it in `main.go`.
+
+**Tests** mount the same way: `tester.New(app, w, h, tester.WithResources("", files))`; the resources are then available as `tt.Resources`.
 
 **`widgets.Image`** loads and decodes in the background, with the result cached and shared by every widget showing the same source:
 

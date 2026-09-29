@@ -12,6 +12,7 @@ import (
 	"github.com/minelifes/nectar_ui/ui/geom"
 	"github.com/minelifes/nectar_ui/ui/gpu"
 	"github.com/minelifes/nectar_ui/ui/render"
+	"github.com/minelifes/nectar_ui/ui/resources"
 	"github.com/minelifes/nectar_ui/ui/widgets"
 )
 
@@ -26,6 +27,7 @@ type App struct {
 	renderer   *gpu.Renderer
 	input      *inputQueue
 	window     *nativeWindow
+	resources  *resources.Set
 }
 
 // NewApp creates an application with the given config.
@@ -50,6 +52,12 @@ func (a *App) Run(root widgets.Widget) error {
 
 	a.window = newNativeWindow(a.gpuApp, a.config)
 	a.buildOwner.Window = a.window
+	// The app's resources: its own mounts over the global ones.
+	a.resources = resources.NewSet(resources.Global())
+	for _, m := range a.config.mounts {
+		a.resources.Mount(m.prefix, m.fsys)
+	}
+	a.buildOwner.Resources = a.resources
 	// Window requests from widgets are applied here, on the main thread.
 	a.gpuApp.OnUpdate(func(float64) { a.window.apply() })
 
@@ -69,6 +77,10 @@ func (a *App) Window() widgets.Window {
 	}
 	return a.window
 }
+
+// Resources returns the app's resources (the same Set widgets get from
+// widgets.ResourcesOf). Valid once Run has started; mount more at any time.
+func (a *App) Resources() *resources.Set { return a.resources }
 
 // Post runs fn on the UI goroutine before the next frame. Safe to call from
 // any goroutine.
@@ -138,6 +150,9 @@ func (a *App) frame(dc *gogpu.Context) {
 func (a *App) close() {
 	if a.root != nil {
 		a.root.Unmount()
+	}
+	if a.resources != nil {
+		a.resources.Reset()
 	}
 	if a.renderer != nil {
 		a.renderer.Release()

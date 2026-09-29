@@ -34,7 +34,7 @@ Results go to `dist/`:
 
 - `main.go`: opens the window and runs the root widget
 - `internal/app/`: the app's widgets (`internal` keeps them private to this module)
-- `assets/`: files embedded in the binary (icon, images…). They're mounted into `resources`, so `widgets.AssetImage{Name: "images/welcome.png"}` and `resources.ReadFile(…)` work wherever the app runs. List new top-level folders in the `go:embed` line in `assets/assets.go`.
+- `assets/`: files embedded in the binary (icon, images…). `main.go` mounts them when the window opens (`cfg.WithResources("", assets.FS)`), so `widgets.AssetImage{Name: "images/welcome.png"}` and `widgets.ResourcesOf(ctx).ReadFile(…)` work wherever the app runs. List new top-level folders in the `go:embed` line in `assets/assets.go`; tests mount them with `tester.WithResources("", assets.FS)`.
 - `tests/`: headless UI tests: tap, type, drag and find text without a window
 
 Widgets come in three shapes, and a widget is whichever interface it implements:

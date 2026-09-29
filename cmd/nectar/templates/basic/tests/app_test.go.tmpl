@@ -5,11 +5,12 @@ import (
 
 	"[[.Engine]]/ui/tester"
 
+	"[[.Module]]/assets"
 	"[[.Module]]/internal/app"
 )
 
 func TestClick(t *testing.T) {
-	tt := tester.New(app.New(), 720, 480)
+	tt := tester.New(app.New(), 720, 480, tester.WithResources("", assets.FS))
 	if err := tt.TapText("Click me"); err != nil {
 		t.Fatal(err)
 	}

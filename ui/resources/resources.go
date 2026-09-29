@@ -1,22 +1,31 @@
 // Package resources gives the app read access to files shipped inside it:
 // images, fonts, data. Embed a folder into the binary with go:embed and
-// mount it once at startup; widgets then load by name (e.g. an
-// widgets.AssetImage) no matter where the app is installed or run from.
+// mount it; widgets then load by name (e.g. an widgets.AssetImage) no
+// matter where the app is installed or run from.
+//
+// Usually you mount per app, when its window opens, and read through the
+// widget context:
 //
 //	//go:embed images fonts
 //	var files embed.FS
 //
-//	resources.Mount("", files)                // at the root
-//	resources.Mount("plugin", pluginFiles)    // under plugin/ (returns an unmount func)
-//	data, err := resources.ReadFile("images/logo.png")
+//	cfg := ui.DefaultConfig().WithResources("", files).WithResources("charts", chartFiles)
+//	...
+//	data, err := widgets.ResourcesOf(ctx).ReadFile("charts/bar.png")
+//
+// A widgets.Resources widget adds mounts for just its subtree. Each of
+// these is a Set layered over its parent (the app's Set over the global
+// one, a subtree's over the app's). The package-level functions work on
+// the global Set, which every app sees: handy for libraries that register
+// files in init().
 //
 // While developing you can mount the folder on disk instead (edits show up
-// without rebuilding): resources.Mount("", os.DirFS("assets")).
+// without rebuilding): WithResources("", os.DirFS("assets")).
 //
-// Mounts stack: a file in a later mount hides the same name in earlier
-// ones, so an app can override a library's defaults. Names use forward
-// slashes and no leading "/", as in io/fs. Everything here is safe for
-// concurrent use.
+// Mounts stack: a file in a later mount (or a child Set) hides the same
+// name in earlier ones, so an app can override a library's defaults. Names
+// use forward slashes and no leading "/", as in io/fs. Everything here is
+// safe for concurrent use.
 package resources
 
 import (
@@ -35,63 +44,111 @@ type mount struct {
 	fsys   fs.FS
 }
 
-var (
+// Set is a stack of mounted file systems, optionally layered over a parent
+// Set (whose files it sees unless it has its own with the same name). A
+// *Set is itself an fs.FS (plus fs.ReadFileFS, fs.ReadDirFS, fs.StatFS),
+// e.g. to pass to a FileTree or template.ParseFS.
+type Set struct {
+	parent *Set
+	id     uint64
 	mu     sync.RWMutex
 	mounts []*mount
-)
+}
 
-// Mount adds fsys to the resources under prefix ("" = the root). The
-// returned func removes it again.
-func Mount(prefix string, fsys fs.FS) (unmount func()) {
+var setIDs struct {
+	sync.Mutex
+	n uint64
+}
+
+// NewSet makes an empty Set over parent (nil = standalone).
+func NewSet(parent *Set) *Set {
+	setIDs.Lock()
+	setIDs.n++
+	id := setIDs.n
+	setIDs.Unlock()
+	return &Set{parent: parent, id: id}
+}
+
+var global = NewSet(nil)
+
+// Global is the process-wide Set the package functions use; every app's
+// Set is layered over it.
+func Global() *Set { return global }
+
+// ID is unique per Set (e.g. for cache keys).
+func (s *Set) ID() uint64 { return s.id }
+
+// Parent returns the Set this one is layered over (nil for the global one).
+func (s *Set) Parent() *Set { return s.parent }
+
+// Mount adds fsys under prefix ("" = the root). The returned func removes
+// it again.
+func (s *Set) Mount(prefix string, fsys fs.FS) (unmount func()) {
 	prefix = strings.Trim(path.Clean("/"+prefix), "/")
 	m := &mount{prefix, fsys}
-	mu.Lock()
-	mounts = append(mounts, m)
-	mu.Unlock()
+	s.mu.Lock()
+	s.mounts = append(s.mounts, m)
+	s.mu.Unlock()
 	return func() {
-		mu.Lock()
-		mounts = slices.DeleteFunc(mounts, func(x *mount) bool { return x == m })
-		mu.Unlock()
+		s.mu.Lock()
+		s.mounts = slices.DeleteFunc(s.mounts, func(x *mount) bool { return x == m })
+		s.mu.Unlock()
 	}
 }
 
-// Reset removes all mounts (mainly for tests).
-func Reset() {
-	mu.Lock()
-	mounts = nil
-	mu.Unlock()
+// Reset removes this Set's own mounts (not the parent's).
+func (s *Set) Reset() {
+	s.mu.Lock()
+	s.mounts = nil
+	s.mu.Unlock()
 }
 
-// FS returns the merged view of all mounts as an fs.FS (it also
-// implements fs.ReadFileFS, fs.ReadDirFS and fs.StatFS), e.g. to pass to
-// a FileTree or template.ParseFS.
-func FS() fs.FS { return merged{} }
-
-// Open opens a resource.
-func Open(name string) (fs.File, error) { return merged{}.Open(name) }
-
-// ReadFile reads a whole resource.
-func ReadFile(name string) ([]byte, error) { return merged{}.ReadFile(name) }
-
-// ReadDir lists a folder across all mounts, sorted by name.
-func ReadDir(name string) ([]fs.DirEntry, error) { return merged{}.ReadDir(name) }
-
-// Stat describes a resource.
-func Stat(name string) (fs.FileInfo, error) { return merged{}.Stat(name) }
-
 // Exists reports whether a resource (file or folder) exists.
-func Exists(name string) bool {
-	_, err := Stat(name)
+func (s *Set) Exists(name string) bool {
+	_, err := s.Stat(name)
 	return err == nil
 }
 
-type merged struct{}
-
-func snapshot() []*mount {
-	mu.RLock()
-	defer mu.RUnlock()
-	return slices.Clone(mounts)
+// snapshot lists the mounts from lowest to highest priority: the parent
+// chain's first, then this Set's in mount order.
+func (s *Set) snapshot() []*mount {
+	var out []*mount
+	if s.parent != nil {
+		out = s.parent.snapshot()
+	}
+	s.mu.RLock()
+	out = append(out, s.mounts...)
+	s.mu.RUnlock()
+	return out
 }
+
+// --- package-level functions: the global Set ------------------------------
+
+// Mount adds fsys to the global Set under prefix. Prefer mounting per app
+// (ui.Config.WithResources) or per subtree (widgets.Resources); this is for
+// libraries registering files in init().
+func Mount(prefix string, fsys fs.FS) (unmount func()) { return global.Mount(prefix, fsys) }
+
+// Reset removes all global mounts (mainly for tests).
+func Reset() { global.Reset() }
+
+// FS returns the global Set as an fs.FS.
+func FS() fs.FS { return global }
+
+// Open opens a global resource.
+func Open(name string) (fs.File, error) { return global.Open(name) }
+
+// ReadFile reads a whole global resource.
+func ReadFile(name string) ([]byte, error) { return global.ReadFile(name) }
+
+// ReadDir lists a global folder across all mounts, sorted by name.
+func ReadDir(name string) ([]fs.DirEntry, error) { return global.ReadDir(name) }
+
+// Stat describes a global resource.
+func Stat(name string) (fs.FileInfo, error) { return global.Stat(name) }
+
+// Exists reports whether a global resource exists.
+func Exists(name string) bool { return global.Exists(name) }
 
 // inner maps name to the path inside m, or ok=false if m doesn't cover it.
 func (m *mount) inner(name string) (string, bool) {
@@ -113,18 +170,19 @@ func check(op, name string) error {
 	return nil
 }
 
-func (merged) Open(name string) (fs.File, error) {
+// Open opens a resource.
+func (s *Set) Open(name string) (fs.File, error) {
 	if err := check("open", name); err != nil {
 		return nil, err
 	}
-	ms := snapshot()
+	ms := s.snapshot()
 	for i := len(ms) - 1; i >= 0; i-- {
 		if p, ok := ms[i].inner(name); ok {
 			f, err := ms[i].fsys.Open(p)
 			if err == nil {
 				if st, _ := f.Stat(); st != nil && st.IsDir() {
 					f.Close()
-					return openDir(name)
+					return s.openDir(name)
 				}
 				return f, nil
 			}
@@ -134,16 +192,17 @@ func (merged) Open(name string) (fs.File, error) {
 		}
 	}
 	if isVirtualDir(ms, name) {
-		return openDir(name)
+		return s.openDir(name)
 	}
 	return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
 }
 
-func (merged) ReadFile(name string) ([]byte, error) {
+// ReadFile reads a whole resource.
+func (s *Set) ReadFile(name string) ([]byte, error) {
 	if err := check("read", name); err != nil {
 		return nil, err
 	}
-	ms := snapshot()
+	ms := s.snapshot()
 	for i := len(ms) - 1; i >= 0; i-- {
 		if p, ok := ms[i].inner(name); ok {
 			data, err := fs.ReadFile(ms[i].fsys, p)
@@ -158,11 +217,12 @@ func (merged) ReadFile(name string) ([]byte, error) {
 	return nil, &fs.PathError{Op: "read", Path: name, Err: fs.ErrNotExist}
 }
 
-func (merged) Stat(name string) (fs.FileInfo, error) {
+// Stat describes a resource.
+func (s *Set) Stat(name string) (fs.FileInfo, error) {
 	if err := check("stat", name); err != nil {
 		return nil, err
 	}
-	ms := snapshot()
+	ms := s.snapshot()
 	for i := len(ms) - 1; i >= 0; i-- {
 		if p, ok := ms[i].inner(name); ok {
 			st, err := fs.Stat(ms[i].fsys, p)
@@ -185,11 +245,11 @@ func (merged) Stat(name string) (fs.FileInfo, error) {
 
 // ReadDir merges the folder's entries from every mount; later mounts win
 // on name clashes. Mount prefixes appear as folders.
-func (merged) ReadDir(name string) ([]fs.DirEntry, error) {
+func (s *Set) ReadDir(name string) ([]fs.DirEntry, error) {
 	if err := check("readdir", name); err != nil {
 		return nil, err
 	}
-	ms := snapshot()
+	ms := s.snapshot()
 	byName := map[string]fs.DirEntry{}
 	found := false
 	for _, m := range ms {
@@ -269,8 +329,8 @@ type dirFile struct {
 	pos     int
 }
 
-func openDir(name string) (fs.File, error) {
-	entries, err := merged{}.ReadDir(name)
+func (s *Set) openDir(name string) (fs.File, error) {
+	entries, err := s.ReadDir(name)
 	if err != nil {
 		return nil, err
 	}

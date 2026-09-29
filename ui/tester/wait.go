@@ -18,4 +18,3 @@ func (t *Tester) PumpUntil(cond func() bool, timeout time.Duration) bool {
 		time.Sleep(2 * time.Millisecond)
 	}
 }
-

@@ -37,7 +37,8 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	win := ui.NewApp(ui.DefaultConfig().WithTitle([[printf "%q" .Title]] + " — " + abs).WithSize(1100, 720).WithIcon(icon()))
+	win := ui.NewApp(ui.DefaultConfig().WithTitle([[printf "%q" .Title]] + " — " + abs).WithSize(1100, 720).WithIcon(icon()).
+		WithResources("", assets.FS))
 	if err := win.Run(app.App{FS: os.DirFS(abs), Name: filepath.Base(abs)}); err != nil {
 		log.Fatal(err)
 	}

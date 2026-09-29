@@ -35,7 +35,7 @@ Results go to `dist/`:
 ```
 main.go                      opens the window, runs app.New()
 nectar.json                  app name, id, version, icon (for nectar build)
-assets/                      embedded resources, mounted into ui/resources
+assets/                      embedded resources (main.go mounts them: WithResources)
 ├── assets.go                go:embed list (add new top-level folders here)
 ├── icon.png                 app icon, 1024×1024
 └── images/welcome.png       read with widgets.AssetImage{Name: "images/welcome.png"}

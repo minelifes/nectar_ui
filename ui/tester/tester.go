@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"image"
 	"image/png"
+	"io/fs"
 	"os"
 	"time"
 
@@ -24,6 +25,7 @@ import (
 	"github.com/minelifes/nectar_ui/ui/geom"
 	"github.com/minelifes/nectar_ui/ui/gpu"
 	"github.com/minelifes/nectar_ui/ui/render"
+	"github.com/minelifes/nectar_ui/ui/resources"
 	"github.com/minelifes/nectar_ui/ui/widgets"
 )
 
@@ -37,6 +39,9 @@ type Tester struct {
 	Clear    geom.Color
 	// Window is what widgets.WindowOf returns: SetSize changes Size.
 	Window *Window
+	// Resources are the app's resources (see WithResources), layered over
+	// the global ones.
+	Resources *resources.Set
 
 	disp      *render.PointerDispatcher
 	now       time.Time
@@ -48,8 +53,17 @@ type Tester struct {
 	renderer *gpu.Renderer
 }
 
+// Option configures New.
+type Option func(*Tester)
+
+// WithResources mounts fsys under prefix into the tester's resources
+// before the first frame, like ui.Config.WithResources.
+func WithResources(prefix string, fsys fs.FS) Option {
+	return func(t *Tester) { t.Resources.Mount(prefix, fsys) }
+}
+
 // New mounts app in a w×h (logical px) surface and runs the first frame.
-func New(app widgets.Widget, w, h int) *Tester {
+func New(app widgets.Widget, w, h int, opts ...Option) *Tester {
 	t := &Tester{
 		Build:    widgets.NewBuildOwner(),
 		Pipeline: render.NewPipelineOwner(),
@@ -63,6 +77,11 @@ func New(app widgets.Widget, w, h int) *Tester {
 	t.Build.Clipboard = (*memClipboard)(t)
 	t.Window = &Window{t: t}
 	t.Build.Window = t.Window
+	t.Resources = resources.NewSet(resources.Global())
+	t.Build.Resources = t.Resources
+	for _, o := range opts {
+		o(t)
+	}
 	t.Root = widgets.Mount(app, geom.Transparent, t.Build, t.Pipeline)
 	t.Pump()
 	return t

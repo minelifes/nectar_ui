@@ -86,11 +86,19 @@ func (s *imageState) InitState() {
 	s.start()
 }
 
+// source returns the widget's source, bound to this place in the tree.
+func (s *imageState) source() ImageSource {
+	src := s.widget().Source
+	if cs, ok := src.(ContextImageSource); ok {
+		return cs.Bind(s.Context())
+	}
+	return src
+}
+
 func (s *imageState) DidUpdateWidget(Widget) {
-	w := s.widget()
 	key := ""
-	if w.Source != nil {
-		key = w.Source.CacheKey()
+	if src := s.source(); src != nil {
+		key = src.CacheKey()
 	}
 	if key != s.key {
 		s.start()
@@ -110,13 +118,13 @@ func (s *imageState) start() {
 		s.cancel()
 		s.cancel = nil
 	}
-	w := s.widget()
+	src := s.source()
 	s.gen++
 	s.img, s.err, s.key = nil, nil, ""
-	if w.Source == nil {
+	if src == nil {
 		return
 	}
-	s.key = w.Source.CacheKey()
+	s.key = src.CacheKey()
 	// Already decoded: show it in this very frame, without fading.
 	if img, ok := s.cache().get(s.key); ok {
 		s.img = img
@@ -124,7 +132,7 @@ func (s *imageState) start() {
 		return
 	}
 	gen := s.gen
-	s.cancel = s.cache().Load(w.Source, func(img *render.Image, err error) {
+	s.cancel = s.cache().Load(src, func(img *render.Image, err error) {
 		s.Post(func() {
 			if gen != s.gen {
 				return // a newer source replaced this one

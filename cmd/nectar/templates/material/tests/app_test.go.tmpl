@@ -3,19 +3,20 @@ package tests
 import (
 	"testing"
 
-	"[[.Engine]]/ui/resources"
 	"[[.Engine]]/ui/tester"
 
+	"[[.Module]]/assets"
 	"[[.Module]]/internal/app"
 	"[[.Module]]/internal/theme"
 )
 
 // The tester runs the app headless: tap, type, drag and find text.
 func TestCounterAndNavigation(t *testing.T) {
-	if !resources.Exists("images/welcome.png") {
+	// Mount the embedded assets like main.go does.
+	tt := tester.New(app.New(), 1100, 720, tester.WithResources("", assets.FS))
+	if !tt.Resources.Exists("images/welcome.png") {
 		t.Fatal("embedded assets not mounted")
 	}
-	tt := tester.New(app.New(), 1100, 720)
 	tt.Settle()
 	for range 2 {
 		if err := tt.TapText("Add"); err != nil {

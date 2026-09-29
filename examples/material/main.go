@@ -17,23 +17,19 @@ import (
 	"github.com/minelifes/nectar_ui/ui/geom"
 	m "github.com/minelifes/nectar_ui/ui/material"
 	"github.com/minelifes/nectar_ui/ui/material/icons"
-	"github.com/minelifes/nectar_ui/ui/resources"
 	"github.com/minelifes/nectar_ui/ui/vector"
 	w "github.com/minelifes/nectar_ui/ui/widgets"
 )
 
-// The gallery's resources (images) are embedded into the binary.
+// The gallery's resources (images) are embedded into the binary and
+// mounted when the window opens.
 //
 //go:embed assets
 var galleryAssets embed.FS
 
-func init() {
-	sub, _ := fs.Sub(galleryAssets, "assets")
-	resources.Mount("", sub)
-}
-
 func main() {
-	app := ui.NewApp(ui.DefaultConfig().WithTitle("Nectar UI — Material 3").WithSize(1200, 800))
+	files, _ := fs.Sub(galleryAssets, "assets")
+	app := ui.NewApp(ui.DefaultConfig().WithTitle("Nectar UI — Material 3").WithSize(1200, 800).WithResources("", files))
 	if err := app.Run(Gallery{}); err != nil {
 		log.Fatal(err)
 	}

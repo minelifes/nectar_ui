@@ -7,6 +7,7 @@ import (
 
 	"github.com/minelifes/nectar_ui/ui/geom"
 	"github.com/minelifes/nectar_ui/ui/render"
+	"github.com/minelifes/nectar_ui/ui/resources"
 )
 
 // BuildOwner tracks dirty elements and rebuilds them once per frame.
@@ -25,6 +26,10 @@ type BuildOwner struct {
 	// Window is the native window hosting the tree (set by the app and
 	// the tester); read it with WindowOf(ctx).
 	Window Window
+
+	// Resources are the app's files (set by the app and the tester); read
+	// them with ResourcesOf(ctx).
+	Resources *resources.Set
 
 	dirty   []Element
 	tickers map[*Ticker]struct{}

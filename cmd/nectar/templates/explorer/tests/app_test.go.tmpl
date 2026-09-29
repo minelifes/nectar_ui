@@ -10,6 +10,7 @@ import (
 
 	"[[.Engine]]/ui/tester"
 
+	"[[.Module]]/assets"
 	"[[.Module]]/internal/app"
 )
 
@@ -19,7 +20,7 @@ func TestPreview(t *testing.T) {
 		"main.go":        {Data: []byte("package main")},
 		"pics/dot.png":   {Data: dotPNG()},
 	}
-	tt := tester.New(app.App{FS: fsys, Name: "demo"}, 1100, 720)
+	tt := tester.New(app.App{FS: fsys, Name: "demo"}, 1100, 720, tester.WithResources("", assets.FS))
 	tt.Settle()
 	if err := tt.TapText("docs"); err != nil { // expands the folder
 		t.Fatal(err)

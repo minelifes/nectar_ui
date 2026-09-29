@@ -58,8 +58,17 @@ func (f FileImage) CacheKey() string {
 
 func (f FileImage) Load(context.Context) ([]byte, error) { return os.ReadFile(f.Path) }
 
-// AssetImage loads an image from the app's resources (see package
-// resources), e.g. AssetImage{Name: "images/logo.png"}.
+// ContextImageSource is an ImageSource that depends on where it's used in
+// the widget tree. Image calls Bind with its context before loading.
+type ContextImageSource interface {
+	ImageSource
+	Bind(ctx BuildContext) ImageSource
+}
+
+// AssetImage loads an image from the app's resources, e.g.
+// AssetImage{Name: "images/logo.png"}. Inside an Image it reads the
+// resources visible at that point in the tree (ResourcesOf); used on its
+// own, the global ones.
 type AssetImage struct {
 	Name string
 }
@@ -67,6 +76,25 @@ type AssetImage struct {
 func (a AssetImage) CacheKey() string { return "asset:" + a.Name }
 
 func (a AssetImage) Load(context.Context) ([]byte, error) { return resources.ReadFile(a.Name) }
+
+// Bind resolves the name against the resources at ctx.
+func (a AssetImage) Bind(ctx BuildContext) ImageSource {
+	set := ResourcesOf(ctx)
+	if set == resources.Global() {
+		return a
+	}
+	return boundAsset{set: set, name: a.Name}
+}
+
+type boundAsset struct {
+	set  *resources.Set
+	name string
+}
+
+// The same name can be a different file in another Set, hence the ID.
+func (b boundAsset) CacheKey() string { return fmt.Sprintf("asset:%s#%d", b.name, b.set.ID()) }
+
+func (b boundAsset) Load(context.Context) ([]byte, error) { return b.set.ReadFile(b.name) }
 
 // MemoryImage decodes an image already in memory. Key names it for the
 // cache; without one the bytes are hashed.
@@ -324,14 +352,18 @@ func (c *ImageCache) put(key string, img *render.Image) {
 
 // Evict forgets src (e.g. after the file or URL content changed); Image
 // widgets showing it reload the next time they're built with a new source.
+// An AssetImage is evicted from every resource Set it was loaded from.
 func (c *ImageCache) Evict(src ImageSource) {
 	key := src.CacheKey()
+	_, asset := src.(AssetImage)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if el, ok := c.entries[key]; ok {
-		c.bytes -= el.Value.(*cacheEntry).img.Bytes()
-		c.lru.Remove(el)
-		delete(c.entries, key)
+	for k, el := range c.entries {
+		if k == key || asset && strings.HasPrefix(k, key+"#") {
+			c.bytes -= el.Value.(*cacheEntry).img.Bytes()
+			c.lru.Remove(el)
+			delete(c.entries, k)
+		}
 	}
 }
 

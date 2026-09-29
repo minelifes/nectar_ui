@@ -276,9 +276,25 @@ func (s *lazyListState) visible() (int, int) {
 	if view <= 0 {
 		view = 1000
 	}
-	off := s.ctrl.Offset()
-	first := max(0, int((off-view/2)/ext))
-	end := min(w.ItemCount, int((off+view*1.5)/ext)+1)
+	count := max(w.ItemCount, 0)
+	// The offset can be stale: the list may just have shrunk (a folder
+	// collapsed) while scrolled far down, and the viewport only clamps it
+	// at the next layout. Clamp it to the new length here, so the rows the
+	// viewport will show are the ones that get built.
+	off := min(s.ctrl.Offset(), float32(count)*ext-view)
+	if !(off > 0) { // also catches NaN
+		off = 0
+	}
+	// Clamp in float before converting: int(±Inf) and int(NaN) differ
+	// between CPUs (and would overflow the +1).
+	row := func(v float32) int {
+		if !(v > 0) {
+			return 0
+		}
+		return int(min(v, float32(count)))
+	}
+	first := row((off - view/2) / ext)
+	end := max(first, row((off+view*1.5)/ext+1))
 	return first, end
 }
 

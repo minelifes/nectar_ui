@@ -75,9 +75,11 @@ func (e *layoutBuilderElement) layout(c geom.Constraints) {
 	}
 	e.needsBuild, e.built, e.last = false, true, c
 	var w Widget
+	e.beginBuild()
 	if b := e.widget.(LayoutBuilder).Builder; b != nil {
 		w = b(e, c)
 	}
+	e.endBuild()
 	e.child = updateChild(e, e.child, w)
 	e.syncRenderChildren()
 }

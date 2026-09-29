@@ -207,6 +207,7 @@ func (w viewport) CreateRenderObject(BuildContext) render.RenderObject {
 	w.ctrl.attach(r, w.owner)
 	return r
 }
+func (viewport) MarksOwnPaint() {}
 func (w viewport) UpdateRenderObject(_ BuildContext, ro render.RenderObject) {
 	r := ro.(*render.RenderViewport)
 	if r.Axis != w.axis {

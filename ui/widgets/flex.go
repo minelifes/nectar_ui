@@ -40,6 +40,7 @@ func (w Flex) CreateRenderObject(BuildContext) render.RenderObject {
 	return r
 }
 
+func (Flex) MarksOwnPaint() {}
 func (w Flex) UpdateRenderObject(_ BuildContext, ro render.RenderObject) {
 	r := ro.(*render.RenderFlex)
 	if r.Direction != w.Direction || r.Main != w.Main || r.Cross != w.Cross || r.Spacing != w.Spacing || r.ShrinkMain != w.ShrinkMain {
@@ -84,6 +85,7 @@ func (w Expanded) ChildWidget() Widget { return w.Child }
 func (w Expanded) CreateRenderObject(BuildContext) render.RenderObject {
 	return &render.RenderFlexible{Flex: max(1, w.Flex), Fit: true}
 }
+func (Expanded) MarksOwnPaint() {}
 func (w Expanded) UpdateRenderObject(_ BuildContext, ro render.RenderObject) {
 	updateFlexible(ro, max(1, w.Flex), true)
 }
@@ -98,6 +100,7 @@ func (w Flexible) ChildWidget() Widget { return w.Child }
 func (w Flexible) CreateRenderObject(BuildContext) render.RenderObject {
 	return &render.RenderFlexible{Flex: max(1, w.Flex)}
 }
+func (Flexible) MarksOwnPaint() {}
 func (w Flexible) UpdateRenderObject(_ BuildContext, ro render.RenderObject) {
 	updateFlexible(ro, max(1, w.Flex), false)
 }

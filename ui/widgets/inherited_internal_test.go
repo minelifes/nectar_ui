@@ -47,8 +47,8 @@ func TestProviderRebuildsOnlyDependents(t *testing.T) {
 	po := render.NewPipelineOwner()
 	root := Mount(themed("red"), geom.White, bo, po)
 
-	// Column holds a slice, so it's re-updated; its children are equal
-	// comparable structs and are skipped unless they depend on the theme.
+	// The Provider's value changed, so it's re-updated; the Column's
+	// children are equal and are skipped unless they depend on the theme.
 	root.SetApp(themed("blue"), geom.White)
 	bo.FlushBuild()
 	if builds["r"] != 2 || builds["p"] != 1 || builds["k"] != 1 {

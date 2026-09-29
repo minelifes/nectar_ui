@@ -253,6 +253,7 @@ func (v carouselView) CreateRenderObject(w.BuildContext) render.RenderObject {
 	return r
 }
 
+func (carouselView) MarksOwnPaint() {}
 func (v carouselView) UpdateRenderObject(_ w.BuildContext, ro render.RenderObject) {
 	r := ro.(*renderCarousel)
 	v.state.ro = r

@@ -29,6 +29,8 @@ func (w Stack) align() geom.Alignment {
 	}
 	return *w.Alignment
 }
+func (Stack) MarksOwnPaint() {}
+
 func (w Stack) UpdateRenderObject(_ BuildContext, ro render.RenderObject) {
 	r := ro.(*render.RenderStack)
 	if r.Alignment != w.align() || r.Expand != w.Expand {
@@ -55,6 +57,8 @@ func (w Positioned) CreateRenderObject(BuildContext) render.RenderObject {
 	w.UpdateRenderObject(nil, r)
 	return r
 }
+func (Positioned) MarksOwnPaint() {}
+
 func (w Positioned) UpdateRenderObject(_ BuildContext, ro render.RenderObject) {
 	r := ro.(*render.RenderPositioned)
 	if r.Left != w.Left || r.Top != w.Top || r.Right != w.Right || r.Bottom != w.Bottom || r.Width != w.Width || r.Height != w.Height {
@@ -73,6 +77,8 @@ func (w Opacity) ChildWidget() Widget { return w.Child }
 func (w Opacity) CreateRenderObject(BuildContext) render.RenderObject {
 	return &render.RenderOpacity{Opacity: w.Opacity}
 }
+func (Opacity) MarksOwnPaint() {}
+
 func (w Opacity) UpdateRenderObject(_ BuildContext, ro render.RenderObject) {
 	r := ro.(*render.RenderOpacity)
 	if r.Opacity != w.Opacity {
@@ -93,6 +99,8 @@ func (w Translate) ChildWidget() Widget { return w.Child }
 func (w Translate) CreateRenderObject(BuildContext) render.RenderObject {
 	return &render.RenderTranslate{Offset: w.Offset, Fraction: w.Fraction}
 }
+func (Translate) MarksOwnPaint() {}
+
 func (w Translate) UpdateRenderObject(_ BuildContext, ro render.RenderObject) {
 	ro.(*render.RenderTranslate).SetTranslation(w.Offset, w.Fraction)
 }
@@ -107,6 +115,8 @@ func (w IgnorePointer) ChildWidget() Widget { return w.Child }
 func (w IgnorePointer) CreateRenderObject(BuildContext) render.RenderObject {
 	return &render.RenderIgnorePointer{Ignoring: w.Ignoring}
 }
+func (IgnorePointer) MarksOwnPaint() {}
+
 func (w IgnorePointer) UpdateRenderObject(_ BuildContext, ro render.RenderObject) {
 	ro.(*render.RenderIgnorePointer).Ignoring = w.Ignoring
 }
@@ -118,6 +128,8 @@ func (w AbsorbPointer) ChildWidget() Widget { return w.Child }
 func (w AbsorbPointer) CreateRenderObject(BuildContext) render.RenderObject {
 	return &render.RenderAbsorbPointer{}
 }
+func (AbsorbPointer) MarksOwnPaint() {}
+
 func (w AbsorbPointer) UpdateRenderObject(BuildContext, render.RenderObject) {}
 
 // Wrap flows children into runs (like text), e.g. for chip groups.
@@ -132,6 +144,8 @@ func (w Wrap) ChildWidgets() []Widget { return w.Children }
 func (w Wrap) CreateRenderObject(BuildContext) render.RenderObject {
 	return &render.RenderWrap{Spacing: w.Spacing, RunSpacing: w.RunSpacing, Alignment: w.Alignment}
 }
+func (Wrap) MarksOwnPaint() {}
+
 func (w Wrap) UpdateRenderObject(_ BuildContext, ro render.RenderObject) {
 	r := ro.(*render.RenderWrap)
 	if r.Spacing != w.Spacing || r.RunSpacing != w.RunSpacing || r.Alignment != w.Alignment {
@@ -159,6 +173,8 @@ func (w CustomPaint) CreateRenderObject(BuildContext) render.RenderObject {
 	w.UpdateRenderObject(nil, r)
 	return r
 }
+func (CustomPaint) MarksOwnPaint() {}
+
 func (w CustomPaint) UpdateRenderObject(_ BuildContext, ro render.RenderObject) {
 	r := ro.(*render.RenderCustomPaint)
 	r.Painter, r.ForegroundPainter = w.Painter, w.ForegroundPainter
@@ -179,6 +195,8 @@ func (w FractionallySizedBox) ChildWidget() Widget { return w.Child }
 func (w FractionallySizedBox) CreateRenderObject(BuildContext) render.RenderObject {
 	return &render.RenderFractionallySized{WidthFactor: w.WidthFactor, HeightFactor: w.HeightFactor}
 }
+func (FractionallySizedBox) MarksOwnPaint() {}
+
 func (w FractionallySizedBox) UpdateRenderObject(_ BuildContext, ro render.RenderObject) {
 	r := ro.(*render.RenderFractionallySized)
 	if r.WidthFactor != w.WidthFactor || r.HeightFactor != w.HeightFactor {
@@ -246,6 +264,8 @@ func (w SizeTransition) ChildWidget() Widget { return w.Child }
 func (w SizeTransition) CreateRenderObject(BuildContext) render.RenderObject {
 	return &render.RenderSizeFactor{Factor: w.Factor, Horizontal: w.Horizontal}
 }
+func (SizeTransition) MarksOwnPaint() {}
+
 func (w SizeTransition) UpdateRenderObject(_ BuildContext, ro render.RenderObject) {
 	r := ro.(*render.RenderSizeFactor)
 	if r.Factor != w.Factor || r.Horizontal != w.Horizontal {

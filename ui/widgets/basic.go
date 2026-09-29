@@ -76,6 +76,8 @@ func (w paragraph) CreateRenderObject(BuildContext) render.RenderObject {
 	return p
 }
 
+func (paragraph) MarksOwnPaint() {}
+
 func (w paragraph) UpdateRenderObject(_ BuildContext, ro render.RenderObject) {
 	ro.(*render.RenderParagraph).Update(w.text, w.style, w.align, w.maxLines, w.ellipsis)
 }
@@ -94,6 +96,8 @@ func (w DecoratedBox) ChildWidget() Widget { return w.Child }
 func (w DecoratedBox) CreateRenderObject(BuildContext) render.RenderObject {
 	return &render.RenderDecoratedBox{Color: w.Color, Border: w.Border}
 }
+func (DecoratedBox) MarksOwnPaint() {}
+
 func (w DecoratedBox) UpdateRenderObject(_ BuildContext, ro render.RenderObject) {
 	r := ro.(*render.RenderDecoratedBox)
 	if r.Color != w.Color || r.Border != w.Border {
@@ -112,6 +116,8 @@ func (w Padding) ChildWidget() Widget { return w.Child }
 func (w Padding) CreateRenderObject(BuildContext) render.RenderObject {
 	return &render.RenderPadding{Padding: w.Padding}
 }
+func (Padding) MarksOwnPaint() {}
+
 func (w Padding) UpdateRenderObject(_ BuildContext, ro render.RenderObject) {
 	r := ro.(*render.RenderPadding)
 	if r.Padding != w.Padding {
@@ -141,6 +147,8 @@ func (w SizedBox) constraints() geom.Constraints {
 func (w SizedBox) CreateRenderObject(BuildContext) render.RenderObject {
 	return &render.RenderConstrainedBox{Additional: w.constraints()}
 }
+func (SizedBox) MarksOwnPaint() {}
+
 func (w SizedBox) UpdateRenderObject(_ BuildContext, ro render.RenderObject) {
 	r := ro.(*render.RenderConstrainedBox)
 	if c := w.constraints(); r.Additional != c {
@@ -159,6 +167,8 @@ func (w ConstrainedBox) ChildWidget() Widget { return w.Child }
 func (w ConstrainedBox) CreateRenderObject(BuildContext) render.RenderObject {
 	return &render.RenderConstrainedBox{Additional: w.Constraints}
 }
+func (ConstrainedBox) MarksOwnPaint() {}
+
 func (w ConstrainedBox) UpdateRenderObject(_ BuildContext, ro render.RenderObject) {
 	r := ro.(*render.RenderConstrainedBox)
 	if r.Additional != w.Constraints {
@@ -177,6 +187,8 @@ func (w Align) ChildWidget() Widget { return w.Child }
 func (w Align) CreateRenderObject(BuildContext) render.RenderObject {
 	return &render.RenderAlign{Alignment: w.Alignment}
 }
+func (Align) MarksOwnPaint() {}
+
 func (w Align) UpdateRenderObject(_ BuildContext, ro render.RenderObject) {
 	r := ro.(*render.RenderAlign)
 	if r.Alignment != w.Alignment {
@@ -197,6 +209,8 @@ func (w ClipRect) ChildWidget() Widget { return w.Child }
 func (w ClipRect) CreateRenderObject(BuildContext) render.RenderObject {
 	return &render.RenderClipRect{}
 }
+func (ClipRect) MarksOwnPaint() {}
+
 func (w ClipRect) UpdateRenderObject(BuildContext, render.RenderObject) {}
 
 // ---------------------------------------------------------------------------
@@ -251,6 +265,8 @@ func (w RepaintBoundary) ChildWidget() Widget { return w.Child }
 func (w RepaintBoundary) CreateRenderObject(BuildContext) render.RenderObject {
 	return &render.RenderRepaintBoundary{}
 }
+func (RepaintBoundary) MarksOwnPaint() {}
+
 func (w RepaintBoundary) UpdateRenderObject(BuildContext, render.RenderObject) {}
 
 // KeyedSubtree attaches a key to any widget so its element (and State) is

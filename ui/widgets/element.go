@@ -2,6 +2,7 @@ package widgets
 
 import (
 	"fmt"
+	"sync/atomic"
 
 	"github.com/minelifes/nectar_ui/ui/render"
 )
@@ -37,6 +38,12 @@ type elementBase struct {
 	active bool
 	// inherited elements this element depends on
 	deps map[*inheritedElement]struct{}
+
+	// Listen subscriptions (listen.go)
+	listens       map[Listenable]*listenSub
+	buildGen      uint32
+	wake          func()
+	listenPending atomic.Bool
 }
 
 func (e *elementBase) base() *elementBase { return e }
@@ -65,6 +72,7 @@ func (e *elementBase) unmountBase() {
 		delete(ie.dependents, e.self)
 	}
 	e.deps = nil
+	e.cancelListens()
 	e.active = false
 }
 
@@ -234,7 +242,10 @@ func (e *statelessElement) update(w Widget) {
 }
 
 func (e *statelessElement) rebuild() {
-	e.performRebuild(e.widget.(StatelessWidget).Build(e))
+	e.beginBuild()
+	built := e.widget.(StatelessWidget).Build(e)
+	e.endBuild()
+	e.performRebuild(built)
 }
 
 func (e *statelessElement) unmount() {
@@ -268,7 +279,12 @@ func (e *statefulElement) update(w Widget) {
 	e.rebuild()
 }
 
-func (e *statefulElement) rebuild() { e.performRebuild(e.state.Build(e)) }
+func (e *statefulElement) rebuild() {
+	e.beginBuild()
+	built := e.state.Build(e)
+	e.endBuild()
+	e.performRebuild(built)
+}
 
 func (e *statefulElement) unmount() {
 	e.unmountChild()
@@ -373,8 +389,11 @@ func (e *renderElementBase) updateRender(self Element, w Widget) {
 	e.widget = w
 	w.(RenderObjectWidget).UpdateRenderObject(self, e.ro)
 	// A new configuration may paint differently: repaint boundaries around
-	// it must re-record. (Unchanged widgets never get here.)
-	render.InvalidatePaint(e.ro)
+	// it must re-record, unless the widget marks its render object itself
+	// whenever its looks change. (Unchanged widgets never get here.)
+	if _, exact := w.(MarksOwnPaint); !exact {
+		render.InvalidatePaint(e.ro)
+	}
 }
 
 // leafElement: render object without children (e.g. text).

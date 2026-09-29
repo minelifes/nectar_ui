@@ -492,6 +492,7 @@ func (w editable) CreateRenderObject(BuildContext) render.RenderObject {
 	return r
 }
 
+func (editable) MarksOwnPaint() {}
 func (w editable) UpdateRenderObject(_ BuildContext, ro render.RenderObject) {
 	r := ro.(*render.RenderEditable)
 	w.state.ro = r

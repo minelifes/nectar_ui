@@ -2,10 +2,10 @@ package tests
 
 import (
 	"context"
-	"image"
-	"image/png"
 	"github.com/minelifes/nectar_ui/ui/gpu"
 	"github.com/minelifes/nectar_ui/ui/widgets/text"
+	"image"
+	"image/png"
 	"os"
 	"testing"
 

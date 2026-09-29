@@ -50,6 +50,7 @@ Name, bundle id, version and icon come from the app's `nectar.json`. The icon is
 
 ```
 ui            App: window + frame loop (build → layout → paint → GPU)
+├── mvvm      view models: observable properties, lists, bindings
 ├── widgets   Widget / Element tree, State, BuildOwner, basic widgets
 ├── gpu       wgpu pipeline, WGSL uber-shader, batching, atlas upload
 ├── render    RenderObject tree: layout (constraints), paint → Canvas display list
@@ -113,6 +114,43 @@ func (s *counterState) Build(ctx widgets.BuildContext) widgets.Widget { ... }
 ```
 
 Custom render object: write a struct embedding `render.Box` (plus `render.SingleChild` / `render.MultiChild` if it has children). Implement `PerformLayout` and `Paint`, plus `VisitChildren` for leaves. Then add a widget that implements `CreateRenderObject` / `UpdateRenderObject` (+ `ChildWidget()` / `ChildWidgets()`). `render.RenderParagraph` and `widgets.paragraph` are the smallest complete example.
+
+## MVVM: view models and bindings (`ui/mvvm`)
+
+A second way to drive the UI, next to `StatefulWidget` + `SetState`: keep the state in a view model made of observable values, and bind widgets to exactly the values they show. A change rebuilds only those bindings, never the page around them.
+
+```go
+type CounterVM struct {
+    mvvm.ViewModel                 // Notifier + Dispose/Own for cleanup
+    Count *mvvm.Property[int]
+}
+func NewCounterVM() *CounterVM { return &CounterVM{Count: mvvm.NewProperty(0)} }
+func (vm *CounterVM) Increment() { vm.Count.Update(func(n int) int { return n + 1 }) }
+
+// the view: built once, only the Bind re-runs on changes
+mvvm.Provide[*CounterVM]{Create: NewCounterVM, Child: CounterPage{}}
+
+func (CounterPage) Build(ctx w.BuildContext) w.Widget {
+    vm := mvvm.Use[*CounterVM](ctx)
+    return w.Column{Children: []w.Widget{
+        mvvm.Bind(vm.Count, func(ctx w.BuildContext, n int) w.Widget { return w.Text{Text: strconv.Itoa(n)} }),
+        m.FilledButton{Label: "+1", OnPressed: vm.Increment},
+    }}
+}
+```
+
+- **Observables:** `Property[T]` (notifies only when the value changes; `Set` fits `OnChanged` callbacks), `Computed[T]` (derived from other observables, notifies only when its result changes), `List[T]` (copy-on-write slice: `Get` returns a snapshot that later edits never touch), and `Notifier` / `ViewModel` for models that notify as a whole. Anything with `Subscribe(func()) (cancel func())` can be bound.
+- **Bindings:** `Bind(o, builder)` rebuilds with o's value; `Watch(ctx, o)` inside any `Build` subscribes that widget; `Select(model, pick, builder)` rebuilds only when the picked value changes; `Observer{Sources, Builder}` watches several.
+- **Lifetime:** `Provide[VM]` creates the view model when it enters the tree and calls its `Dispose` when it leaves; `Use[VM](ctx)` finds it (a plain `widgets.Provider[VM]` works too). Subscriptions end with the widget, and a build that stops watching something drops that subscription.
+- **Threads:** observables are safe for concurrent use, so a view model may update them from any goroutine. Bindings coalesce notifications and rebuild once, on the UI goroutine, before the next frame.
+- **Lower level:** `widgets.Listen(ctx, listenable)` is what `Watch` uses; call it from your own widgets or controllers.
+
+`CGO_ENABLED=0 go run ./examples/mvvm` is a todo list built this way.
+
+**What a rebuild touches.** Whether from `SetState` or a binding, a rebuild updates only what changed below it:
+
+- A child whose new widget equals the old one is skipped with its whole subtree. Widgets are compared by value: fields, nested widgets and slices (so `Row{Children: …}` with the same children is skipped), pointers by identity. Funcs and maps always count as changed, as does a slice that reuses the old one's backing array (it may have been edited in place), so build new slices instead of mutating old ones.
+- Built-in render widgets mark their render object only when a property really changes, so a rebuild that changes nothing visible (say, a new `OnTap` closure) doesn't make the surrounding repaint boundary repaint. Custom render widgets that do the same (call `MarkNeedsPaint` / `MarkNeedsLayout` themselves) can say so with a `MarksOwnPaint()` method; without it the engine repaints the boundary after each update to be safe.
 
 ## Input
 

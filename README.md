@@ -15,6 +15,7 @@ go install github.com/minelifes/nectar_ui/cmd/nectar@latest
 nectar new myapp                     # Material 3 starter in ./myapp
 cd myapp && CGO_ENABLED=0 go run .
 nectar dev                           # or run it with hot reload (see below)
+nectar theme                         # design its Material theme in a live editor (see below)
 ```
 
 `nectar new` writes a ready-to-run module that imports the engine from GitHub (`go get github.com/minelifes/nectar_ui@<version>` + `go mod tidy`).
@@ -367,6 +368,36 @@ m.ThemeScope{Theme: t, Child: sidebar}
 - **Outlines** need a color and a width: set only the color for a 1px line, or only the width for the default color.
 - **Rebuilds:** a `Style` literal with pointer fields is a new value on every build, so that widget is never skipped as unchanged; keep often-used styles in package-level variables. Equal themes don't rebuild their dependents (`ThemeScope` compares them by value).
 - `tests/theme_gallery_test.go` renders every component and checks that each theme field changes what's drawn.
+
+### Theme editor: `nectar theme`
+
+`nectar theme` opens a Nectar UI app for designing a theme visually, then writes it as Go code.
+
+```sh
+nectar theme                          # in an app: edits internal/theme/theme_gen.go (else ./theme_gen.go)
+nectar theme -o ui/brand.go -pkg brand
+nectar theme -new                     # start over, replacing the file on save
+```
+
+- **Edit:** the seed color, every color-scheme role (light and dark separately: toggle the preview mode), each style of the type scale (size, font weight, letter spacing, line height, color) and every field of every component theme. Colors have a hex field and a picker (hue, saturation, brightness, opacity, or a role of the current scheme); sizes have sliders; flags, elevation and fonts have segmented choices. The ↶ button next to an edited field resets it. Search finds components by name or by field.
+- **Preview:** the selected component first, then all of them, live, in light or dark. The preview is a real `material.App` with the designed theme, so its buttons open dialogs, sheets, menus, snack bars and pickers in the designed style.
+- **Code:** *Code* shows the generated file and copies it; *Save* (or Ctrl/⌘+S) writes it. The file has one function returning the theme, with only the fields you changed:
+
+```go
+func Generated(dark bool) m.Theme {
+	t := m.NewTheme(geom.Hex(0x006A6A), dark)
+	if dark {
+		t.Scheme.Surface = geom.Hex(0x0E1514)
+	} else {
+		t.Scheme.Surface = geom.Hex(0xF4FBFA)
+	}
+	t.Card.Elevation = w.Ptr(0)
+	t.FilledButton.Radius = m.Dp(6)
+	return t
+}
+```
+
+Use it with `material.App{Theme: theme.Generated(false), DarkTheme: widgets.Ptr(theme.Generated(true)), Dark: dark}`, or in a `nectar new` app replace `m.NewTheme(seed, dark)` in `internal/theme/theme.go` with `Generated(dark)`. The design is also stored in the file's last line, so `nectar theme` on the same file reopens it. Files it didn't write are never overwritten.
 
 ## Testing widgets (`ui/tester`)
 

@@ -14,6 +14,8 @@ import (
 type LinearProgressIndicator struct {
 	Value         float32 // 0..1
 	Indeterminate bool
+	// Style overrides Theme.Progress.
+	Style ProgressIndicatorTheme
 }
 
 func (LinearProgressIndicator) CreateState() w.State { return &progressState{} }
@@ -42,19 +44,22 @@ func (s *progressState) Dispose() {
 
 func (s *progressState) Build(ctx w.BuildContext) w.Widget {
 	p := w.WidgetOf[LinearProgressIndicator](s)
-	sc := ThemeOf(ctx).Scheme
+	th := ThemeOf(ctx)
+	sc := th.Scheme
+	st := merge(th.Progress, p.Style)
 	s.ensureLoop(p.Indeterminate, 1800*time.Millisecond)
-	active, track := sc.Primary, sc.SecondaryContainer
-	return w.CustomPaint{Size: geom.Sz(geom.Inf, 4), Painter: func(c *render.Canvas, o geom.Offset, size geom.Size) {
-		r := geom.Rect{X: o.X, Y: o.Y, W: size.W, H: 4}
+	active, track := pick(st.Color, sc.Primary), pick(st.TrackColor, sc.SecondaryContainer)
+	h := pickF(st.LinearHeight, 4)
+	return w.CustomPaint{Size: geom.Sz(geom.Inf, h), Painter: func(c *render.Canvas, o geom.Offset, size geom.Size) {
+		r := geom.Rect{X: o.X, Y: o.Y, W: size.W, H: h}
 		c.PushClip(r)
-		c.FillRoundRect(r, 2, track)
+		c.FillRoundRect(r, h/2, track)
 		if s.loop != nil {
 			t := s.loop.Value()
 			seg := func(a, b float32) {
 				a, b = min(max(a, 0), 1), min(max(b, 0), 1)
 				if b > a {
-					c.FillRoundRect(geom.Rect{X: o.X + a*size.W, Y: o.Y, W: (b - a) * size.W, H: 4}, 2, active)
+					c.FillRoundRect(geom.Rect{X: o.X + a*size.W, Y: o.Y, W: (b - a) * size.W, H: h}, h/2, active)
 				}
 			}
 			// Two bars chasing each other (M3 indeterminate linear).
@@ -64,7 +69,7 @@ func (s *progressState) Build(ctx w.BuildContext) w.Widget {
 			seg(e(t2)*1.6-0.8, e(t2)*1.6-0.4)
 		} else {
 			v := min(max(p.Value, 0), 1)
-			c.FillRoundRect(geom.Rect{X: o.X, Y: o.Y, W: v * size.W, H: 4}, 2, active)
+			c.FillRoundRect(geom.Rect{X: o.X, Y: o.Y, W: v * size.W, H: h}, h/2, active)
 		}
 		c.PopClip()
 	}}
@@ -74,8 +79,10 @@ func (s *progressState) Build(ctx w.BuildContext) w.Widget {
 type CircularProgressIndicator struct {
 	Value         float32
 	Indeterminate bool
-	Size          float32 // default 48
-	StrokeWidth   float32 // default 4
+	Size          float32 // default Style / 48
+	StrokeWidth   float32 // default Style / 4
+	// Style overrides Theme.Progress.
+	Style ProgressIndicatorTheme
 }
 
 func (CircularProgressIndicator) CreateState() w.State { return &circularState{} }
@@ -84,17 +91,19 @@ type circularState struct{ progressState }
 
 func (s *circularState) Build(ctx w.BuildContext) w.Widget {
 	p := w.WidgetOf[CircularProgressIndicator](s)
-	sc := ThemeOf(ctx).Scheme
+	th := ThemeOf(ctx)
+	sc := th.Scheme
+	st := merge(th.Progress, p.Style)
 	s.ensureLoop(p.Indeterminate, 1333*time.Millisecond)
 	size := p.Size
 	if size == 0 {
-		size = 48
+		size = pickF(st.CircularSize, 48)
 	}
 	sw := p.StrokeWidth
 	if sw == 0 {
-		sw = 4
+		sw = pickF(st.StrokeWidth, 4)
 	}
-	active, track := sc.Primary, sc.SecondaryContainer
+	active, track := pick(st.Color, sc.Primary), pick(st.TrackColor, sc.SecondaryContainer)
 	return w.CustomPaint{Size: geom.Sz(size, size), Painter: func(c *render.Canvas, o geom.Offset, sz geom.Size) {
 		d := min(sz.W, sz.H) - 4
 		r := geom.Rect{X: o.X + (sz.W-d)/2, Y: o.Y + (sz.H-d)/2, W: d, H: d}

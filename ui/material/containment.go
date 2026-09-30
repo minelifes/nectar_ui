@@ -28,10 +28,13 @@ type Card struct {
 	OnTap   func()
 	Padding geom.EdgeInsets // default none
 	Child   w.Widget
+	// Style overrides Theme.Card.
+	Style CardTheme
 }
 
 func (c Card) Build(ctx w.BuildContext) w.Widget {
-	s := ThemeOf(ctx).Scheme
+	th := ThemeOf(ctx)
+	s := th.Scheme
 	var bg, border geom.Color
 	var bw float32
 	elev := 0
@@ -43,45 +46,75 @@ func (c Card) Build(ctx w.BuildContext) w.Widget {
 	case CardOutlined:
 		bg, border, bw = s.Surface, s.OutlineVariant, 1
 	}
+	st := merge(th.Card, c.Style)
+	bg = pick(st.Color, bg)
+	border, bw = side(st.BorderColor, st.BorderWidth, s.OutlineVariant, bw)
+	elev = pickI(st.Elevation, elev)
+	radius := pickF(st.Radius, CornerMedium)
 	child := c.Child
 	if !c.Padding.IsZero() {
 		child = w.Padding{Padding: c.Padding, Child: child}
 	}
+	var card w.Widget
 	if c.OnTap == nil {
-		return Surface{Color: bg, Radius: CornerMedium, BorderColor: border, BorderWidth: bw, Elevation: elev, Child: child}
+		card = Surface{Color: bg, Radius: radius, BorderColor: border, BorderWidth: bw, Elevation: elev, ShadowColor: st.ShadowColor, Child: child}
+	} else {
+		card = InkSurface{OnTap: c.OnTap, Color: bg, ContentColor: pick(st.OverlayColor, s.OnSurface), BorderColor: border, BorderWidth: bw,
+			Radius: radius, Elevation: elev, ShadowColor: st.ShadowColor, RaiseOnHover: c.Variant == CardElevated && elev > 0, Child: child}
 	}
-	return InkSurface{OnTap: c.OnTap, Color: bg, ContentColor: s.OnSurface, BorderColor: border, BorderWidth: bw,
-		Radius: CornerMedium, Elevation: elev, RaiseOnHover: c.Variant == CardElevated, Child: child}
+	if st.Margin != nil {
+		card = w.Padding{Padding: *st.Margin, Child: card}
+	}
+	return card
 }
 
 // ---------------------------------------------------------------------------
 // Dividers
 
-// Divider is a thin horizontal line.
+// Divider is a thin horizontal line. Styled by Theme.Divider and Style.
 type Divider struct {
 	Indent, EndIndent float32
-	Height            float32 // total space; default 1 (line is always 1px)
+	Height            float32 // total space; default Style / 1
+	Style             DividerTheme
+}
+
+func dividerLook(ctx w.BuildContext, own DividerTheme, indent, end, space float32) (col geom.Color, thick, in, out, sp float32) {
+	th := ThemeOf(ctx)
+	st := merge(th.Divider, own)
+	thick = max(pickF(st.Thickness, 1), 0)
+	in, out = indent, end
+	if in == 0 {
+		in = pickF(st.Indent, 0)
+	}
+	if out == 0 {
+		out = pickF(st.EndIndent, 0)
+	}
+	sp = space
+	if sp == 0 {
+		sp = pickF(st.Space, thick)
+	}
+	return pick(st.Color, th.Scheme.OutlineVariant), thick, in, out, max(sp, thick)
 }
 
 func (d Divider) Build(ctx w.BuildContext) w.Widget {
-	col := ThemeOf(ctx).Scheme.OutlineVariant
-	h := max(d.Height, 1)
+	col, thick, in, out, h := dividerLook(ctx, d.Style, d.Indent, d.EndIndent, d.Height)
 	return w.CustomPaint{Size: geom.Sz(geom.Inf, h), Painter: func(c *render.Canvas, o geom.Offset, s geom.Size) {
-		c.FillRect(geom.Rect{X: o.X + d.Indent, Y: o.Y + (s.H-1)/2, W: s.W - d.Indent - d.EndIndent, H: 1}, col)
+		c.FillRect(geom.Rect{X: o.X + in, Y: o.Y + (s.H-thick)/2, W: s.W - in - out, H: thick}, col)
 	}}
 }
 
-// VerticalDivider is a thin vertical line.
+// VerticalDivider is a thin vertical line. Styled by Theme.Divider and
+// Style.
 type VerticalDivider struct {
 	Indent, EndIndent float32
 	Width             float32
+	Style             DividerTheme
 }
 
 func (d VerticalDivider) Build(ctx w.BuildContext) w.Widget {
-	col := ThemeOf(ctx).Scheme.OutlineVariant
-	wd := max(d.Width, 1)
+	col, thick, in, out, wd := dividerLook(ctx, d.Style, d.Indent, d.EndIndent, d.Width)
 	return w.CustomPaint{Size: geom.Sz(wd, geom.Inf), Painter: func(c *render.Canvas, o geom.Offset, s geom.Size) {
-		c.FillRect(geom.Rect{X: o.X + (s.W-1)/2, Y: o.Y + d.Indent, W: 1, H: s.H - d.Indent - d.EndIndent}, col)
+		c.FillRect(geom.Rect{X: o.X + (s.W-thick)/2, Y: o.Y + in, W: thick, H: s.H - in - out}, col)
 	}}
 }
 
@@ -102,15 +135,19 @@ type ListTile struct {
 	Disabled    bool
 	OnTap       func()
 	Dense       bool
+	// Style overrides Theme.ListTile.
+	Style ListTileTheme
 }
 
 func (t ListTile) Build(ctx w.BuildContext) w.Widget {
 	th := ThemeOf(ctx)
 	s := th.Scheme
-	titleC, subC, iconC := s.OnSurface, s.OnSurfaceVariant, s.OnSurfaceVariant
-	bg := geom.Transparent
+	st := merge(th.ListTile, t.Style)
+	titleC, subC, iconC := pick(st.TextColor, s.OnSurface), pick(st.SubtitleColor, s.OnSurfaceVariant), pick(st.IconColor, s.OnSurfaceVariant)
+	bg := pick(st.TileColor, geom.Transparent)
 	if t.Selected {
-		bg, titleC, iconC = s.SecondaryContainer, s.OnSecondaryContainer, s.OnSecondaryContainer
+		sel := pick(st.SelectedColor, s.OnSecondaryContainer)
+		bg, titleC, iconC = pick(st.SelectedTileColor, s.SecondaryContainer), sel, sel
 	}
 	if t.Disabled {
 		dc, _ := disabledColors(s)
@@ -118,23 +155,23 @@ func (t ListTile) Build(ctx w.BuildContext) w.Widget {
 	}
 	lines := []w.Widget{}
 	if t.Overline != "" {
-		lines = append(lines, w.Text{Text: t.Overline, Style: Styled(th.Text.LabelSmall, subC), MaxLines: 1, Ellipsis: true})
+		lines = append(lines, w.Text{Text: t.Overline, Style: pickTC(st.SubtitleTextStyle, th.Text.LabelSmall, subC), MaxLines: 1, Ellipsis: true})
 	}
 	if t.TitleWidget != nil {
 		lines = append(lines, t.TitleWidget)
 	} else if t.Title != "" {
-		st := th.Text.BodyLarge
+		ts, tileStyle := th.Text.BodyLarge, st
 		if t.Dense {
-			st = th.Text.BodyMedium
+			ts = th.Text.BodyMedium
 		}
-		lines = append(lines, w.Text{Text: t.Title, Style: Styled(st, titleC), MaxLines: 1, Ellipsis: true})
+		lines = append(lines, w.Text{Text: t.Title, Style: pickTC(tileStyle.TitleTextStyle, ts, titleC), MaxLines: 1, Ellipsis: true})
 	}
 	if t.Subtitle != "" {
 		ml := 1
 		if t.ThreeLine {
 			ml = 2
 		}
-		lines = append(lines, w.Text{Text: t.Subtitle, Style: Styled(th.Text.BodyMedium, subC), MaxLines: ml, Ellipsis: true})
+		lines = append(lines, w.Text{Text: t.Subtitle, Style: pickTC(st.SubtitleTextStyle, th.Text.BodyMedium, subC), MaxLines: ml, Ellipsis: true})
 	}
 	minH := float32(56)
 	switch {
@@ -146,24 +183,29 @@ func (t ListTile) Build(ctx w.BuildContext) w.Widget {
 	if t.Dense {
 		minH -= 8
 	}
+	minH = pickF(st.MinHeight, minH)
 	kids := []w.Widget{}
 	if t.Leading != nil {
 		kids = append(kids, w.IconTheme{Size: 24, Color: iconC, Child: t.Leading})
 	}
 	kids = append(kids, w.Expanded{Child: w.Column{Cross: w.CrossStretch, ShrinkMain: true, Main: w.MainCenter, Children: lines}})
 	if t.Trailing != nil {
-		kids = append(kids, w.DefaultTextStyle{Style: Styled(th.Text.LabelSmall, subC), Child: w.IconTheme{Size: 24, Color: iconC, Child: t.Trailing}})
+		kids = append(kids, w.DefaultTextStyle{Style: pickTC(st.TrailingTextStyle, th.Text.LabelSmall, subC), Child: w.IconTheme{Size: 24, Color: iconC, Child: t.Trailing}})
 	}
 	cross := w.CrossCenter
 	if t.ThreeLine {
 		cross = w.CrossStart
 	}
 	body := w.ConstrainedBox{Constraints: geom.Constraints{MinW: 0, MaxW: geom.Inf, MinH: minH, MaxH: geom.Inf},
-		Child: w.Padding{Padding: geom.InsetsLTRB(16, 8, 24, 8), Child: w.Row{Cross: cross, Spacing: 16, Children: kids}}}
+		Child: w.Padding{Padding: pickE(st.ContentPadding, geom.InsetsLTRB(16, 8, 24, 8)), Child: w.Row{Cross: cross, Spacing: pickF(st.HorizontalGap, 16), Children: kids}}}
+	radius := pickF(st.Radius, 0)
 	if t.OnTap == nil || t.Disabled {
+		if radius > 0 {
+			return Surface{Color: bg, Radius: radius, Child: body}
+		}
 		return w.DecoratedBox{Color: bg, Child: body}
 	}
-	return InkSurface{OnTap: t.OnTap, Color: bg, ContentColor: titleC, Child: body}
+	return InkSurface{OnTap: t.OnTap, Color: bg, ContentColor: pick(st.OverlayColor, titleC), Radius: radius, Child: body}
 }
 
 // CheckboxListTile is a ListTile with a trailing checkbox; tapping the row toggles.
@@ -226,6 +268,8 @@ type ExpansionTile struct {
 	Children           []w.Widget
 	InitiallyExpanded  bool
 	OnExpansionChanged func(bool)
+	// Style overrides Theme.ExpansionTile.
+	Style ExpansionTileTheme
 }
 
 func (ExpansionTile) CreateState() w.State { return &expansionState{} }
@@ -247,19 +291,25 @@ func (s *expansionState) InitState() {
 
 func (s *expansionState) Build(ctx w.BuildContext) w.Widget {
 	e := w.WidgetOf[ExpansionTile](s)
-	sc := ThemeOf(ctx).Scheme
+	th := ThemeOf(ctx)
+	sc := th.Scheme
+	st := merge(th.ExpansionTile, e.Style)
 	if s.open {
 		s.f.Set(1)
 	} else {
 		s.f.Set(0)
 	}
 	arrow := iconExpandMore
-	col := sc.OnSurfaceVariant
+	col, bg, text := pick(st.CollapsedIconColor, sc.OnSurfaceVariant), st.CollapsedBackgroundColor, st.CollapsedTextColor
 	if s.open {
-		arrow, col = iconExpandLess, sc.Primary
+		arrow, col, bg, text = iconExpandLess, pick(st.IconColor, sc.Primary), st.BackgroundColor, st.TextColor
 	}
-	return w.Column{Cross: w.CrossStretch, ShrinkMain: true, Children: []w.Widget{
-		ListTile{Title: e.Title, Subtitle: e.Subtitle, Leading: e.Leading,
+	var children w.Widget = w.Column{Cross: w.CrossStretch, ShrinkMain: true, Children: e.Children}
+	if st.ChildrenPadding != nil {
+		children = w.Padding{Padding: *st.ChildrenPadding, Child: children}
+	}
+	return w.DecoratedBox{Color: pick(bg, geom.Transparent), Child: w.Column{Cross: w.CrossStretch, ShrinkMain: true, Children: []w.Widget{
+		ListTile{Title: e.Title, Subtitle: e.Subtitle, Leading: e.Leading, Style: ListTileTheme{TextColor: text},
 			Trailing: w.Icon{Icon: arrow, Color: col},
 			OnTap: func() {
 				s.SetState(func() { s.open = !s.open })
@@ -267,8 +317,8 @@ func (s *expansionState) Build(ctx w.BuildContext) w.Widget {
 					e.OnExpansionChanged(s.open)
 				}
 			}},
-		w.SizeTransition{Factor: s.f.Value(), Child: w.Column{Cross: w.CrossStretch, ShrinkMain: true, Children: e.Children}},
-	}}
+		w.SizeTransition{Factor: s.f.Value(), Child: children},
+	}}}
 }
 
 // ---------------------------------------------------------------------------
@@ -279,6 +329,8 @@ type Badge struct {
 	Label string // empty = small 6px dot
 	Show  *bool  // nil = shown
 	Child w.Widget
+	// Style overrides Theme.Badge.
+	Style BadgeTheme
 }
 
 func (b Badge) Build(ctx w.BuildContext) w.Widget {
@@ -287,14 +339,18 @@ func (b Badge) Build(ctx w.BuildContext) w.Widget {
 	if b.Show != nil && !*b.Show {
 		return b.Child
 	}
+	st := merge(th.Badge, b.Style)
+	bg, fg := pick(st.BackgroundColor, s.Error), pick(st.TextColor, s.OnError)
 	var dot w.Widget
 	if b.Label == "" {
-		dot = w.Positioned{Right: w.At(-3), Top: w.At(-3), Child: w.Container{Width: 6, Height: 6, Color: s.Error, Border: &geom.Border{Radius: 3}}}
+		d := pickF(st.SmallSize, 6)
+		dot = w.Positioned{Right: w.At(-d / 2), Top: w.At(-d / 2), Child: w.Container{Width: d, Height: d, Color: bg, Border: &geom.Border{Radius: d / 2}}}
 	} else {
-		dot = w.Positioned{Left: w.At(12), Top: w.At(-4), Child: w.Container{Color: s.Error, Border: &geom.Border{Radius: 8},
-			Padding: geom.InsetsHV(4, 0),
-			Child: w.ConstrainedBox{Constraints: geom.Constraints{MinW: 8, MaxW: geom.Inf, MinH: 16, MaxH: 16},
-				Child: w.Center{Child: w.Text{Text: b.Label, Style: Styled(th.Text.LabelSmall, s.OnError)}}}}}
+		h := pickF(st.LargeSize, 16)
+		dot = w.Positioned{Left: w.At(12), Top: w.At(-h / 4), Child: w.Container{Color: bg, Border: &geom.Border{Radius: h / 2},
+			Padding: pickE(st.Padding, geom.InsetsHV(4, 0)),
+			Child: w.ConstrainedBox{Constraints: geom.Constraints{MinW: h / 2, MaxW: geom.Inf, MinH: h, MaxH: h},
+				Child: w.Center{Child: w.Text{Text: b.Label, Style: pickTC(st.TextStyle, th.Text.LabelSmall, fg)}}}}}
 	}
 	return w.Stack{Children: []w.Widget{b.Child, dot}}
 }
@@ -306,18 +362,21 @@ func (b Badge) Build(ctx w.BuildContext) w.Widget {
 type CircleAvatar struct {
 	Text   string
 	Icon   *vector.Icon
-	Radius float32 // default 20
+	Radius float32 // default Style / 20
 	Color  geom.Color
+	// Style overrides Theme.Avatar (Radius and Color above win over it).
+	Style CircleAvatarTheme
 }
 
 func (a CircleAvatar) Build(ctx w.BuildContext) w.Widget {
 	th := ThemeOf(ctx)
 	s := th.Scheme
+	st := merge(th.Avatar, a.Style)
 	r := a.Radius
 	if r == 0 {
-		r = 20
+		r = pickF(st.Radius, 20)
 	}
-	bg, fg := s.PrimaryContainer, s.OnPrimaryContainer
+	bg, fg := pick(st.BackgroundColor, s.PrimaryContainer), pick(st.ForegroundColor, s.OnPrimaryContainer)
 	if a.Color.A > 0 {
 		bg = a.Color
 	}
@@ -325,9 +384,9 @@ func (a CircleAvatar) Build(ctx w.BuildContext) w.Widget {
 	if a.Icon != nil {
 		child = w.Icon{Icon: a.Icon, Size: r, Color: fg}
 	} else {
-		st := Styled(th.Text.TitleMedium, fg)
-		st.Size = r * 0.8
-		child = w.Text{Text: a.Text, Style: st, MaxLines: 1}
+		ts := Styled(th.Text.TitleMedium, fg)
+		ts.Size = r * 0.8
+		child = w.Text{Text: a.Text, Style: pickT(st.TextStyle, ts), MaxLines: 1}
 	}
 	return w.Container{Width: 2 * r, Height: 2 * r, Color: bg, Border: &geom.Border{Radius: r}, Alignment: w.Ptr(geom.Center), Child: child}
 }
@@ -339,6 +398,8 @@ func (a CircleAvatar) Build(ctx w.BuildContext) w.Widget {
 type Tooltip struct {
 	Message string
 	Child   w.Widget
+	// Style overrides Theme.Tooltip.
+	Style TooltipTheme
 }
 
 func (Tooltip) CreateState() w.State { return &tooltipState{} }
@@ -370,22 +431,27 @@ func (s *tooltipState) show() {
 	}
 	th := ThemeOf(ctx)
 	sc := th.Scheme
+	tip := w.WidgetOf[Tooltip](s)
+	st := merge(th.Tooltip, tip.Style)
 	origin := render.GlobalOrigin(ro)
 	size := ro.Base().Size()
-	msg := w.WidgetOf[Tooltip](s).Message
-	p := text.Layout(msg, th.Text.BodySmall, text.Options{})
-	tw := p.Width + 16
+	msg := tip.Message
+	pad := pickE(st.Padding, geom.InsetsHV(8, 4))
+	ts := pickTC(st.TextStyle, th.Text.BodySmall, sc.InverseOnSurface)
+	p := text.Layout(msg, ts, text.Options{})
+	tw := p.Width + pad.Left + pad.Right
+	th2 := p.Height + pad.Top + pad.Bottom
 	x := origin.X + size.W/2 - tw/2
 	win := ov.Context().RenderObject().Base().Size()
 	x = max(4, min(x, win.W-tw-4))
 	y := origin.Y + size.H + 4
-	if y+28 > win.H {
-		y = origin.Y - 28
+	if y+th2+4 > win.H {
+		y = origin.Y - th2 - 4
 	}
 	s.entry = &w.OverlayEntry{Builder: func(w.BuildContext) w.Widget {
 		return w.IgnorePointer{Ignoring: true, Child: w.Stack{Expand: true, Children: []w.Widget{
-			w.Positioned{Left: w.At(x), Top: w.At(y), Child: w.Container{Color: sc.InverseSurface, Border: &geom.Border{Radius: CornerExtraSmall},
-				Padding: geom.InsetsHV(8, 4), Child: w.Text{Text: msg, Style: Styled(th.Text.BodySmall, sc.InverseOnSurface)}}},
+			w.Positioned{Left: w.At(x), Top: w.At(y), Child: w.Container{Color: pick(st.Color, sc.InverseSurface), Border: &geom.Border{Radius: pickF(st.Radius, CornerExtraSmall)},
+				Padding: pad, Child: w.Text{Text: msg, Style: ts}}},
 		}}}
 	}}
 	ov.Insert(s.entry)
@@ -394,9 +460,13 @@ func (s *tooltipState) show() {
 func (s *tooltipState) Build(ctx w.BuildContext) w.Widget {
 	return w.MouseRegion{
 		OnEnter: func(w.PointerEvent) {
+			wait := merge(ThemeOf(ctx).Tooltip, w.WidgetOf[Tooltip](s).Style).WaitDuration
+			if wait == 0 {
+				wait = 500 * time.Millisecond
+			}
 			if s.ticker == nil {
 				s.ticker = ctx.Owner().NewTicker(func(el time.Duration) {
-					if el >= 500*time.Millisecond {
+					if el >= wait {
 						s.ticker.Stop()
 						s.show()
 					}
@@ -421,19 +491,22 @@ type MaterialBanner struct {
 	Icon    *vector.Icon
 	Content string
 	Actions []w.Widget
+	// Style overrides Theme.Banner.
+	Style BannerTheme
 }
 
 func (b MaterialBanner) Build(ctx w.BuildContext) w.Widget {
 	th := ThemeOf(ctx)
 	s := th.Scheme
+	st := merge(th.Banner, b.Style)
 	top := []w.Widget{}
 	if b.Icon != nil {
-		top = append(top, CircleAvatar{Icon: b.Icon, Color: s.Primary, Radius: 20})
+		top = append(top, CircleAvatar{Icon: b.Icon, Color: pick(st.LeadingColor, s.Primary), Radius: 20})
 	}
-	top = append(top, w.Expanded{Child: w.Text{Text: b.Content, Style: Styled(th.Text.BodyMedium, s.OnSurface)}})
-	return w.Container{Color: s.SurfaceContainerLow, Child: w.Column{Cross: w.CrossStretch, ShrinkMain: true, Children: []w.Widget{
-		w.Padding{Padding: geom.InsetsLTRB(16, 16, 16, 8), Child: w.Row{Spacing: 16, Cross: w.CrossCenter, Children: top}},
+	top = append(top, w.Expanded{Child: w.Text{Text: b.Content, Style: pickTC(st.ContentTextStyle, th.Text.BodyMedium, s.OnSurface)}})
+	return w.Container{Color: pick(st.BackgroundColor, s.SurfaceContainerLow), Child: w.Column{Cross: w.CrossStretch, ShrinkMain: true, Children: []w.Widget{
+		w.Padding{Padding: pickE(st.Padding, geom.InsetsLTRB(16, 16, 16, 8)), Child: w.Row{Spacing: 16, Cross: w.CrossCenter, Children: top}},
 		w.Padding{Padding: geom.InsetsLTRB(8, 0, 8, 8), Child: w.Row{Main: w.MainEnd, Spacing: 8, Children: b.Actions}},
-		Divider{},
+		Divider{Style: DividerTheme{Color: st.DividerColor}},
 	}}}
 }

@@ -44,11 +44,16 @@ type DataTable struct {
 	Rows          []DataRow
 	SortColumn    int // -1 = none
 	SortAscending bool
+	// Style overrides Theme.DataTable.
+	Style DataTableTheme
 }
 
 func (t DataTable) Build(ctx w.BuildContext) w.Widget {
 	th := ThemeOf(ctx)
 	sc := th.Scheme
+	st := merge(th.DataTable, t.Style)
+	margin := pickF(st.HorizontalMargin, 16)
+	divider := Divider{Style: DividerTheme{Color: st.DividerColor}}
 	checkboxes := false
 	for _, r := range t.Rows {
 		if r.OnSelectChanged != nil {
@@ -61,7 +66,7 @@ func (t DataTable) Build(ctx w.BuildContext) w.Widget {
 		if col.Numeric {
 			al = geom.CenterRight
 		}
-		var c w.Widget = w.Padding{Padding: geom.InsetsHV(16, 0), Child: w.Align{Alignment: al, Child: child}}
+		var c w.Widget = w.Padding{Padding: geom.InsetsHV(margin, 0), Child: w.Align{Alignment: al, Child: child}}
 		if col.Width > 0 {
 			return w.SizedBox{Width: col.Width, Child: c}
 		}
@@ -82,15 +87,16 @@ func (t DataTable) Build(ctx w.BuildContext) w.Widget {
 		}}}})
 	}
 	for i, c := range t.Columns {
-		fg := sc.OnSurfaceVariant
-		kids := []w.Widget{w.Text{Text: c.Label, Style: Styled(th.Text.TitleSmall, fg), MaxLines: 1}}
+		hs := pickTC(st.HeadingTextStyle, th.Text.TitleSmall, sc.OnSurfaceVariant)
+		fg := hs.Color
+		kids := []w.Widget{w.Text{Text: c.Label, Style: hs, MaxLines: 1}}
 		sorted := i == t.SortColumn
 		if sorted {
 			arrow := iconArrowUp
 			if !t.SortAscending {
 				arrow = iconArrowDown
 			}
-			kids = append(kids, w.Icon{Icon: arrow, Size: 18, Color: sc.OnSurface})
+			kids = append(kids, w.Icon{Icon: arrow, Size: 18, Color: pick(st.SortIconColor, sc.OnSurface)})
 		}
 		var label w.Widget = w.Row{ShrinkMain: true, Cross: w.CrossCenter, Spacing: 4, Children: kids}
 		if c.OnSort != nil {
@@ -103,7 +109,8 @@ func (t DataTable) Build(ctx w.BuildContext) w.Widget {
 		}
 		header = append(header, cell(i, label))
 	}
-	rows := []w.Widget{w.SizedBox{Height: 56, Child: w.Row{Cross: w.CrossCenter, Children: header}}, Divider{}}
+	rows := []w.Widget{w.DecoratedBox{Color: pick(st.HeadingRowColor, geom.Transparent),
+		Child: w.SizedBox{Height: pickF(st.HeadingRowHeight, 56), Child: w.Row{Cross: w.CrossCenter, Children: header}}}, divider}
 	for _, r := range t.Rows {
 		kids := []w.Widget{}
 		if checkboxes {
@@ -116,10 +123,10 @@ func (t DataTable) Build(ctx w.BuildContext) w.Widget {
 			}
 			kids = append(kids, cell(i, c))
 		}
-		var body w.Widget = w.SizedBox{Height: 52, Child: w.Row{Cross: w.CrossCenter, Children: kids}}
-		bg := geom.Transparent
+		var body w.Widget = w.SizedBox{Height: pickF(st.DataRowHeight, 52), Child: w.Row{Cross: w.CrossCenter, Children: kids}}
+		bg := pick(st.DataRowColor, geom.Transparent)
 		if r.Selected {
-			bg = sc.Primary.WithAlpha(0.08)
+			bg = pick(st.SelectedRowColor, sc.Primary.WithAlpha(0.08))
 		}
 		if r.OnSelectChanged != nil {
 			r := r
@@ -127,9 +134,9 @@ func (t DataTable) Build(ctx w.BuildContext) w.Widget {
 		} else {
 			body = w.DecoratedBox{Color: bg, Child: body}
 		}
-		rows = append(rows, body, Divider{})
+		rows = append(rows, body, divider)
 	}
-	return w.DefaultTextStyle{Style: Styled(th.Text.BodyMedium, sc.OnSurface),
+	return w.DefaultTextStyle{Style: pickTC(st.DataTextStyle, th.Text.BodyMedium, sc.OnSurface),
 		Child: w.Column{Cross: w.CrossStretch, ShrinkMain: true, Children: rows}}
 }
 
@@ -162,6 +169,8 @@ type Stepper struct {
 	OnStepTapped func(int)
 	OnContinue   func()
 	OnCancel     func()
+	// Style overrides Theme.Stepper.
+	Style StepperTheme
 }
 
 func (Stepper) CreateState() w.State { return &stepperState{} }
@@ -175,6 +184,9 @@ func (s *stepperState) Build(ctx w.BuildContext) w.Widget {
 	sp := w.WidgetOf[Stepper](s)
 	th := ThemeOf(ctx)
 	sc := th.Scheme
+	st := merge(th.Stepper, sp.Style)
+	activeC, activeFG := pick(st.ActiveColor, sc.Primary), pick(st.ActiveIconColor, sc.OnPrimary)
+	errC := pick(st.ErrorColor, sc.Error)
 	for len(s.open) < len(sp.Steps) {
 		v := float32(0)
 		if len(s.open) == sp.Current {
@@ -183,7 +195,7 @@ func (s *stepperState) Build(ctx w.BuildContext) w.Widget {
 		s.open = append(s.open, w.NewAnimated(s, 250*time.Millisecond, w.Emphasized, v))
 	}
 	kids := []w.Widget{}
-	for i, st := range sp.Steps {
+	for i, step := range sp.Steps {
 		i := i
 		active := i == sp.Current
 		if active {
@@ -191,36 +203,38 @@ func (s *stepperState) Build(ctx w.BuildContext) w.Widget {
 		} else {
 			s.open[i].Set(0)
 		}
-		circleBG, circleFG := sc.OnSurface.WithAlpha(DisabledContentOpacity), sc.Surface
+		circleBG, circleFG := pick(st.InactiveColor, sc.OnSurface.WithAlpha(DisabledContentOpacity)), pick(st.InactiveIconColor, sc.Surface)
 		var mark w.Widget = w.Text{Text: strconv.Itoa(i + 1), Style: Styled(th.Text.LabelMedium, circleFG)}
 		switch {
-		case st.State == StepError:
-			circleBG, circleFG = sc.Error, sc.OnError
+		case step.State == StepError:
+			circleBG, circleFG = errC, sc.OnError
 			mark = w.Text{Text: "!", Style: Styled(th.Text.LabelMedium, circleFG)}
-		case st.State == StepComplete:
-			circleBG, circleFG = sc.Primary, sc.OnPrimary
+		case step.State == StepComplete:
+			circleBG, circleFG = activeC, activeFG
 			mark = w.Icon{Icon: iconCheck, Size: 16, Color: circleFG}
-		case active || st.State == StepEditing:
-			circleBG, circleFG = sc.Primary, sc.OnPrimary
-			if st.State == StepEditing {
+		case active || step.State == StepEditing:
+			circleBG, circleFG = activeC, activeFG
+			if step.State == StepEditing {
 				mark = w.Icon{Icon: iconEdit, Size: 14, Color: circleFG}
 			} else {
 				mark = w.Text{Text: strconv.Itoa(i + 1), Style: Styled(th.Text.LabelMedium, circleFG)}
 			}
 		}
-		titleC := sc.OnSurface
-		if st.State == StepDisabled {
+		titleC := pick(st.TitleTextStyle.Color, sc.OnSurface)
+		if step.State == StepDisabled {
 			titleC, _ = disabledColors(sc)
 		}
-		if st.State == StepError {
-			titleC = sc.Error
+		if step.State == StepError {
+			titleC = errC
 		}
-		texts := []w.Widget{w.Text{Text: st.Title, Style: Styled(th.Text.BodyLarge, titleC)}}
-		if st.Subtitle != "" {
-			texts = append(texts, w.Text{Text: st.Subtitle, Style: Styled(th.Text.BodySmall, sc.OnSurfaceVariant)})
+		ts := pickT(st.TitleTextStyle, th.Text.BodyLarge)
+		ts.Color = titleC
+		texts := []w.Widget{w.Text{Text: step.Title, Style: ts}}
+		if step.Subtitle != "" {
+			texts = append(texts, w.Text{Text: step.Subtitle, Style: pickTC(st.SubtitleTextStyle, th.Text.BodySmall, sc.OnSurfaceVariant)})
 		}
 		var tap func()
-		if sp.OnStepTapped != nil && st.State != StepDisabled {
+		if sp.OnStepTapped != nil && step.State != StepDisabled {
 			tap = func() { sp.OnStepTapped(i) }
 		}
 		kids = append(kids, InkSurface{OnTap: tap, ContentColor: sc.OnSurface, NoFocus: true, Child: w.Padding{Padding: geom.InsetsHV(24, 12),
@@ -229,8 +243,8 @@ func (s *stepperState) Build(ctx w.BuildContext) w.Widget {
 				w.Column{Cross: w.CrossStart, ShrinkMain: true, Children: texts},
 			}}}})
 		body := []w.Widget{}
-		if st.Content != nil {
-			body = append(body, st.Content)
+		if step.Content != nil {
+			body = append(body, step.Content)
 		}
 		ctrls := []w.Widget{}
 		if sp.OnContinue != nil {
@@ -242,7 +256,7 @@ func (s *stepperState) Build(ctx w.BuildContext) w.Widget {
 		if len(ctrls) > 0 {
 			body = append(body, w.SizedBox{Height: 16}, w.Row{ShrinkMain: true, Spacing: 8, Children: ctrls})
 		}
-		line := sc.OutlineVariant
+		line := pick(st.ConnectorColor, sc.OutlineVariant)
 		// Content with the connector line on the left (painted, so it spans
 		// the content's height even inside the size transition).
 		kids = append(kids, w.SizeTransition{Factor: s.open[i].Value(), Child: w.CustomPaint{

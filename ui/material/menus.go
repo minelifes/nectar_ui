@@ -36,6 +36,9 @@ func ShowMenu(ctx w.BuildContext, anchor geom.Rect, items []MenuItem, opts MenuO
 		return
 	}
 	th := ThemeOf(ctx)
+	mt := th.Menu
+	ts := pickT(mt.TextStyle, th.Text.LabelLarge)
+	itemH := pickF(mt.ItemHeight, 48)
 	win := ov.Context().RenderObject().Base().Size()
 	width := opts.Width
 	if width == 0 {
@@ -43,12 +46,12 @@ func ShowMenu(ctx w.BuildContext, anchor geom.Rect, items []MenuItem, opts MenuO
 			if it.Divider {
 				continue
 			}
-			iw := text.Layout(it.Label, th.Text.LabelLarge, text.Options{}).Width + 24
+			iw := text.Layout(it.Label, ts, text.Options{}).Width + 24
 			if it.Leading != nil {
 				iw += 36
 			}
 			if it.Trailing != "" {
-				iw += text.Layout(it.Trailing, th.Text.LabelLarge, text.Options{}).Width + 24
+				iw += text.Layout(it.Trailing, ts, text.Options{}).Width + 24
 			}
 			width = max(width, iw)
 		}
@@ -59,7 +62,7 @@ func ShowMenu(ctx w.BuildContext, anchor geom.Rect, items []MenuItem, opts MenuO
 		if it.Divider {
 			h += 17
 		} else {
-			h += 48
+			h += itemH
 		}
 	}
 	x := min(max(anchor.X, 8), win.W-width-8)
@@ -109,13 +112,15 @@ func (s *menuPanelState) Build(ctx w.BuildContext) w.Widget {
 	m := w.WidgetOf[menuPanel](s)
 	th := ThemeOf(ctx)
 	sc := th.Scheme
+	mt := th.Menu
+	itemH := pickF(mt.ItemHeight, 48)
 	rows := []w.Widget{}
 	for _, it := range m.items {
 		if it.Divider {
 			rows = append(rows, w.Padding{Padding: geom.InsetsHV(0, 8), Child: Divider{}})
 			continue
 		}
-		fg, ic := sc.OnSurface, sc.OnSurfaceVariant
+		fg, ic := pick(mt.TextColor, sc.OnSurface), pick(mt.IconColor, sc.OnSurfaceVariant)
 		if it.Disabled {
 			fg, _ = disabledColors(sc)
 			ic = fg
@@ -124,9 +129,9 @@ func (s *menuPanelState) Build(ctx w.BuildContext) w.Widget {
 		if it.Leading != nil {
 			kids = append(kids, w.Icon{Icon: it.Leading, Size: 24, Color: ic})
 		}
-		kids = append(kids, w.Expanded{Child: w.Text{Text: it.Label, Style: Styled(th.Text.LabelLarge, fg), MaxLines: 1, Ellipsis: true}})
+		kids = append(kids, w.Expanded{Child: w.Text{Text: it.Label, Style: pickTC(mt.TextStyle, th.Text.LabelLarge, fg), MaxLines: 1, Ellipsis: true}})
 		if it.Trailing != "" {
-			kids = append(kids, w.Text{Text: it.Trailing, Style: Styled(th.Text.LabelLarge, ic)})
+			kids = append(kids, w.Text{Text: it.Trailing, Style: pickTC(mt.TextStyle, th.Text.LabelLarge, ic)})
 		}
 		var tap func()
 		if !it.Disabled {
@@ -140,10 +145,10 @@ func (s *menuPanelState) Build(ctx w.BuildContext) w.Widget {
 		}
 		bg := geom.Transparent
 		if it.Selected {
-			bg = sc.OnSurface.WithAlpha(0.10)
+			bg = pick(mt.SelectedColor, sc.OnSurface.WithAlpha(0.10))
 		}
 		rows = append(rows, InkSurface{OnTap: tap, Color: bg, ContentColor: sc.OnSurface, Disabled: it.Disabled,
-			Child: w.SizedBox{Height: 48, Child: w.Padding{Padding: geom.InsetsHV(12, 0),
+			Child: w.SizedBox{Height: itemH, Child: w.Padding{Padding: geom.InsetsHV(12, 0),
 				Child: w.Row{Cross: w.CrossCenter, Spacing: 12, Children: kids}}}})
 	}
 	t := s.t.Value()
@@ -154,7 +159,8 @@ func (s *menuPanelState) Build(ctx w.BuildContext) w.Widget {
 		}
 		return false
 	}, Child: w.Opacity{Opacity: t, Child: w.SizeTransition{Factor: 0.6 + 0.4*t,
-		Child: w.AbsorbPointer{Child: Surface{Color: sc.SurfaceContainer, Radius: CornerExtraSmall, Elevation: 2,
+		Child: w.AbsorbPointer{Child: Surface{Color: pick(mt.BackgroundColor, sc.SurfaceContainer), Radius: pickF(mt.Radius, CornerExtraSmall),
+			Elevation: pickI(mt.Elevation, 2), ShadowColor: mt.ShadowColor,
 			Child: w.Padding{Padding: geom.InsetsHV(0, 8), Child: w.Column{Cross: w.CrossStretch, ShrinkMain: true, Children: rows}}}}}}}
 }
 
@@ -196,33 +202,37 @@ type DropdownMenu struct {
 	Entries    []DropdownEntry
 	Selected   any
 	OnSelected func(v any) // nil = disabled
-	Width      float32     // default 200
+	Width      float32     // default Style / 200
+	// Style overrides Theme.DropdownMenu (the menu itself uses Theme.Menu).
+	Style DropdownMenuTheme
 }
 
 func (d DropdownMenu) Build(ctx w.BuildContext) w.Widget {
 	th := ThemeOf(ctx)
 	sc := th.Scheme
+	st := merge(th.DropdownMenu, d.Style)
 	width := d.Width
 	if width == 0 {
-		width = 200
+		width = pickF(st.Width, 200)
 	}
+	radius := pickF(st.Radius, CornerExtraSmall)
 	sel := ""
 	for _, e := range d.Entries {
 		if e.Value == d.Selected {
 			sel = e.Label
 		}
 	}
-	fg, border := sc.OnSurface, sc.Outline
+	fg, border := pick(st.TextStyle.Color, sc.OnSurface), pick(st.BorderColor, sc.Outline)
 	if d.OnSelected == nil {
 		fg, _ = disabledColors(sc)
 		border = fg
 	}
-	labelSt := Styled(th.Text.BodySmall, sc.OnSurfaceVariant)
+	labelSt := pickTC(st.LabelStyle, th.Text.BodySmall, sc.OnSurfaceVariant)
 	labelW := text.Layout(d.Label, labelSt, text.Options{}).Width + 8
-	bgNotch := sc.Surface
+	bgNotch := pick(th.ScaffoldBackground, sc.Surface)
 	kids := []w.Widget{
-		w.Expanded{Child: w.Text{Text: sel, Style: Styled(th.Text.BodyLarge, fg), MaxLines: 1, Ellipsis: true}},
-		w.Icon{Icon: iconArrowDrop, Size: 24, Color: sc.OnSurfaceVariant},
+		w.Expanded{Child: w.Text{Text: sel, Style: pickTC(st.TextStyle, th.Text.BodyLarge, fg), MaxLines: 1, Ellipsis: true}},
+		w.Icon{Icon: iconArrowDrop, Size: 24, Color: pick(st.IconColor, sc.OnSurfaceVariant)},
 	}
 	var open func()
 	if d.OnSelected != nil {
@@ -238,14 +248,14 @@ func (d DropdownMenu) Build(ctx w.BuildContext) w.Widget {
 	field := w.CustomPaint{
 		Painter: func(c *render.Canvas, o geom.Offset, size geom.Size) {
 			r := geom.RectFrom(o, size)
-			c.StrokeRoundRect(r, CornerExtraSmall, 1, border)
+			c.StrokeRoundRect(r, radius, 1, border)
 			if d.Label != "" {
 				c.FillRect(geom.Rect{X: o.X + 12, Y: o.Y - 2, W: labelW, H: 4}, bgNotch)
 			}
 		},
 		Child: w.SizedBox{Height: 56, Child: w.Padding{Padding: geom.InsetsLTRB(16, 0, 12, 0), Child: w.Row{Cross: w.CrossCenter, Children: kids}}},
 	}
-	stack := []w.Widget{InkSurface{OnTap: open, ContentColor: sc.OnSurface, Radius: CornerExtraSmall, Child: field}}
+	stack := []w.Widget{InkSurface{OnTap: open, ContentColor: sc.OnSurface, Radius: radius, Child: field}}
 	if d.Label != "" {
 		stack = append(stack, w.Positioned{Left: w.At(16), Top: w.At(-8),
 			Child: w.IgnorePointer{Ignoring: true, Child: w.Text{Text: d.Label, Style: labelSt}}})

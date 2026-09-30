@@ -57,5 +57,14 @@ func build(seed geom.Color, dark bool) m.Theme {
 	// a bigger, tighter headline for page titles:
 	t.Text.HeadlineMedium.Size = 30
 	t.Text.HeadlineMedium.LetterSpacing = -0.25
+
+	// Components: every Material widget has a theme here (t.FilledButton,
+	// t.Card, t.Input, t.NavigationBar, …); set only what you want to
+	// change. Colors left zero keep the scheme's; sizes are pointers
+	// (m.Dp(8)) because 0 is a valid value. A widget's own Style field
+	// still wins over these. For example, flatter cards:
+	//
+	//	t.Card = m.CardTheme{Elevation: w.Ptr(0), BorderWidth: m.Dp(1)}
+	//	t.FilledButton = m.ButtonStyle{Radius: m.Dp(12)}
 	return t
 }

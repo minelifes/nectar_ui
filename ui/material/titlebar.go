@@ -24,24 +24,26 @@ type TitleBar struct {
 	Height float32
 	// Color overrides the background.
 	Color *geom.Color
+	// Style overrides Theme.TitleBar (Height and Color above win over it).
+	Style TitleBarTheme
 }
 
 func (t TitleBar) Build(ctx w.BuildContext) w.Widget {
 	th := ThemeOf(ctx)
 	sc := th.Scheme
-	bg := sc.SurfaceContainer
+	ts := merge(th.TitleBar, t.Style)
+	bg := pick(ts.BackgroundColor, sc.SurfaceContainer)
 	if t.Color != nil {
 		bg = *t.Color
 	}
 	h := t.Height
 	if h <= 0 {
-		h = 40
+		h = pickF(ts.Height, 40)
 	}
+	icon := pick(ts.IconColor, sc.OnSurfaceVariant)
 	left := append([]w.Widget(nil), t.Leading...)
 	if t.Title != "" {
-		st := th.Text.TitleSmall
-		st.Color = sc.OnSurface
-		left = append(left, w.Text{Text: t.Title, Style: st})
+		left = append(left, w.Text{Text: t.Title, Style: pickTC(ts.TitleTextStyle, th.Text.TitleSmall, sc.OnSurface)})
 	}
 	row := []w.Widget{
 		w.Expanded{Child: w.Row{Cross: w.CrossCenter, Spacing: 8, Children: left}},
@@ -52,8 +54,8 @@ func (t TitleBar) Build(ctx w.BuildContext) w.Widget {
 		center = w.DefaultTextStyle{Style: centerStyle(th), Child: t.Center}
 	}
 	return w.TitleBar{Height: h, Color: bg, Center: center,
-		Buttons: w.WindowButtons{Color: sc.OnSurfaceVariant, Height: h},
-		Child:   w.IconTheme{Size: 20, Color: sc.OnSurfaceVariant, Child: w.Row{Cross: w.CrossCenter, Children: row}}}
+		Buttons: w.WindowButtons{Color: icon, Height: h},
+		Child:   w.IconTheme{Size: 20, Color: icon, Child: w.Row{Cross: w.CrossCenter, Children: row}}}
 }
 
 func centerStyle(th Theme) text.Style {

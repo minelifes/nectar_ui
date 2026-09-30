@@ -341,6 +341,33 @@ app.Run(material.App{Theme: material.NewTheme(geom.Hex(0x6750A4), false), Dark: 
 
 Known gaps compared to Flutter: the time picker is input-only with 24-hour time (no dial), ripples in segmented buttons aren't clipped to the pill ends, carousel items are visual only (use `OnTap`; no buttons inside items), and fonts are the Go fonts, not Roboto.
 
+### Component themes
+
+Like Flutter's `ThemeData`, `Theme` holds one theme per component besides the color scheme and type scale: `FilledButton`, `ElevatedButton`, `FilledTonalButton`, `OutlinedButton`, `TextButton`, `IconButton`, `SegmentedButton` (all `ButtonStyle`), `FAB`, `Card`, `Divider`, `ListTile`, `ExpansionTile`, `Badge`, `Avatar`, `Tooltip`, `Banner`, `Progress`, `SnackBar`, `Dialog`, `BottomSheet`, `SideSheet`, `Carousel`, `Chip`, `Checkbox`, `Radio`, `Switch`, `Slider`, `Input` (text fields), `SearchBar`, `Menu`, `DropdownMenu`, `DatePicker`, `TimePicker`, `AppBar`, `NavigationBar`, `NavigationRail`, `NavigationDrawer`, `TabBar`, `BottomAppBar`, `TitleBar`, `DataTable`, `Stepper`, `TreeView` and `SplitView`, plus `ScaffoldBackground` and `FocusRingColor`.
+
+```go
+th := m.NewTheme(geom.Hex(0x0B57D0), false)
+th.FilledButton = m.ButtonStyle{Radius: m.Dp(8), Padding: w.Ptr(geom.InsetsHV(20, 0))}
+th.Card = m.CardTheme{Elevation: w.Ptr(0), BorderWidth: m.Dp(1)}
+th.Input = m.InputDecorationTheme{Outlined: w.Ptr(true), Radius: m.Dp(12)}
+th.NavigationBar = m.NavigationBarTheme{IndicatorColor: geom.Hex(0xFFD8E4)}
+m.App{Theme: th, Home: page}                 // dark mode keeps them (Theme.WithDark)
+
+// one widget: its Style wins over the theme, field by field
+m.FilledButton{Label: "Delete", Style: m.ButtonStyle{BackgroundColor: th.Scheme.Error}}
+
+// one subtree: copy the theme, change it, provide it
+t := m.ThemeOf(ctx)
+t.ListTile.Radius = m.Dp(12)
+m.ThemeScope{Theme: t, Child: sidebar}
+```
+
+- **Precedence:** the widget's `Style` field, then the theme's component theme, then the M3 default from the scheme.
+- **Unset values:** colors and text styles use their zero value (text styles merge field by field, like `Text`). Numbers, insets, elevation and flags are pointers, because 0 is meaningful (square corners, no shadow): `m.Dp(0)`, `w.Ptr(0)`, `w.Ptr(false)`. For an explicit "no color" use `m.Transparent`.
+- **Outlines** need a color and a width: set only the color for a 1px line, or only the width for the default color.
+- **Rebuilds:** a `Style` literal with pointer fields is a new value on every build, so that widget is never skipped as unchanged; keep often-used styles in package-level variables. Equal themes don't rebuild their dependents (`ThemeScope` compares them by value).
+- `tests/theme_gallery_test.go` renders every component and checks that each theme field changes what's drawn.
+
 ## Testing widgets (`ui/tester`)
 
 `tester.New(widget, w, h)` runs the same pipeline as the app without a window, much like Flutter's `WidgetTester`:

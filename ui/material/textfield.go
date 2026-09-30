@@ -33,6 +33,8 @@ type TextField struct {
 	Width       float32 // 0 = fill available width
 	OnChanged   func(string)
 	OnSubmitted func(string)
+	// Style overrides Theme.Input. Style.Outlined wins over Outlined.
+	Style InputDecorationTheme
 }
 
 func (TextField) CreateState() w.State { return &textFieldState{} }
@@ -69,6 +71,9 @@ func (s *textFieldState) Build(ctx w.BuildContext) w.Widget {
 	tf := w.WidgetOf[TextField](s)
 	th := ThemeOf(ctx)
 	sc := th.Scheme
+	st := merge(th.Input, tf.Style)
+	tf.Outlined = pickB(st.Outlined, tf.Outlined)
+	radius := pickF(st.Radius, CornerExtraSmall)
 	hasText := s.ctrl.Text() != ""
 	if s.focused || hasText {
 		s.float.Set(1)
@@ -76,16 +81,18 @@ func (s *textFieldState) Build(ctx w.BuildContext) w.Widget {
 		s.float.Set(0)
 	}
 	isErr := tf.Error != ""
-	accent, labelIdle, content := sc.Primary, sc.OnSurfaceVariant, sc.OnSurface
+	accent, labelIdle, content := pick(st.FocusColor, sc.Primary), pick(st.LabelStyle.Color, sc.OnSurfaceVariant), pick(st.TextStyle.Color, sc.OnSurface)
 	indicator := sc.OnSurfaceVariant
 	if tf.Outlined {
 		indicator = sc.Outline
 	}
+	indicator = pick(st.BorderColor, indicator)
 	if s.hovered && !s.focused {
-		indicator = sc.OnSurface
+		indicator = pick(st.HoverBorderColor, sc.OnSurface)
 	}
+	errC := pick(st.ErrorColor, sc.Error)
 	if isErr {
-		accent, indicator, labelIdle = sc.Error, sc.Error, sc.Error
+		accent, indicator, labelIdle = errC, errC, errC
 	}
 	if tf.Disabled {
 		dc, _ := disabledColors(sc)
@@ -102,7 +109,7 @@ func (s *textFieldState) Build(ctx w.BuildContext) w.Widget {
 	}
 
 	// Field content: [prefix] editable [suffix]
-	lineStyle := Styled(th.Text.BodyLarge, content)
+	lineStyle := pickTC(st.TextStyle, th.Text.BodyLarge, content)
 	edit := w.EditableText{
 		Controller: s.ctrl, Focus: s.node, Style: lineStyle,
 		CursorColor: accent, SelectionColor: accent.WithAlpha(0.3),
@@ -128,7 +135,7 @@ func (s *textFieldState) Build(ctx w.BuildContext) w.Widget {
 	// Hint shows when the label has floated (or there's no label) and empty.
 	var hint w.Widget
 	if tf.Hint != "" && !hasText && (t >= 1 || tf.Label == "") && (s.focused || tf.Label == "") {
-		hint = w.IgnorePointer{Ignoring: true, Child: w.Text{Text: tf.Hint, Style: Styled(th.Text.BodyLarge, sc.OnSurfaceVariant), MaxLines: 1}}
+		hint = w.IgnorePointer{Ignoring: true, Child: w.Text{Text: tf.Hint, Style: pickTC(st.HintStyle, th.Text.BodyLarge, sc.OnSurfaceVariant), MaxLines: 1}}
 	}
 	top := float32(16)
 	if tf.Label != "" && !tf.Outlined {
@@ -157,13 +164,14 @@ func (s *textFieldState) Build(ctx w.BuildContext) w.Widget {
 				x = widgetsLerp(0, -prefixW, t)
 			}
 		}
-		st := Styled(th.Text.BodyLarge, labelColor)
-		st.Size, st.LineHeight = size, 1.25
+		ls := pickT(st.LabelStyle, Styled(th.Text.BodyLarge, labelColor))
+		ls.Color = labelColor
+		ls.Size, ls.LineHeight = size, 1.25
 		stackKids = append(stackKids, w.Positioned{Left: w.At(x), Top: w.At(y),
-			Child: w.IgnorePointer{Ignoring: true, Child: w.Text{Text: tf.Label, Style: st, MaxLines: 1}}})
+			Child: w.IgnorePointer{Ignoring: true, Child: w.Text{Text: tf.Label, Style: ls, MaxLines: 1}}})
 	}
 	row := []w.Widget{}
-	iconCol := sc.OnSurfaceVariant
+	iconCol := pick(st.IconColor, sc.OnSurfaceVariant)
 	if tf.Disabled {
 		iconCol = content
 	}
@@ -182,7 +190,7 @@ func (s *textFieldState) Build(ctx w.BuildContext) w.Widget {
 	if suffix != nil {
 		col := iconCol
 		if isErr {
-			col = sc.Error
+			col = errC
 		}
 		var sw w.Widget = w.Icon{Icon: suffix, Size: 24, Color: col}
 		if tf.OnSuffix != nil && !tf.Disabled {
@@ -194,16 +202,15 @@ func (s *textFieldState) Build(ctx w.BuildContext) w.Widget {
 	}
 
 	outlined := tf.Outlined
-	fill := sc.SurfaceContainerHighest
+	fill := pick(st.FillColor, sc.SurfaceContainerHighest)
 	if tf.Disabled {
 		fill = sc.OnSurface.WithAlpha(0.04)
 	}
 	labelW := float32(0)
 	if tf.Label != "" && outlined {
-		st := th.Text.BodySmall
-		labelW = measure(tf.Label, st) + 8
+		labelW = measure(tf.Label, pickT(st.LabelStyle, th.Text.BodySmall)) + 8
 	}
-	bgForNotch := sc.Surface
+	bgForNotch := pick(th.ScaffoldBackground, sc.Surface)
 	focusedNow := s.focused
 	container := w.CustomPaint{
 		Painter: func(c *render.Canvas, o geom.Offset, size geom.Size) {
@@ -213,7 +220,7 @@ func (s *textFieldState) Build(ctx w.BuildContext) w.Widget {
 				if focusedNow {
 					bw = 2
 				}
-				c.StrokeRoundRect(r, CornerExtraSmall, bw, indicator)
+				c.StrokeRoundRect(r, radius, bw, indicator)
 				// Notch: erase the border behind the floated label (the
 				// label itself is painted afterwards, on top).
 				if labelW > 0 && s.float.Value() > 0 {
@@ -222,10 +229,10 @@ func (s *textFieldState) Build(ctx w.BuildContext) w.Widget {
 				return
 			}
 			// Filled: top corners rounded, bottom square, active indicator.
-			c.FillRoundRect(r, CornerExtraSmall, fill)
-			c.FillRect(geom.Rect{X: r.X, Y: r.Bottom() - CornerExtraSmall, W: r.W, H: CornerExtraSmall}, fill)
+			c.FillRoundRect(r, radius, fill)
+			c.FillRect(geom.Rect{X: r.X, Y: r.Bottom() - radius, W: r.W, H: min(radius, r.H)}, fill)
 			if s.hovered && !tf.Disabled {
-				c.FillRoundRect(r, CornerExtraSmall, sc.OnSurface.WithAlpha(HoverOpacity))
+				c.FillRoundRect(r, radius, sc.OnSurface.WithAlpha(HoverOpacity))
 			}
 			h := float32(1)
 			if focusedNow {
@@ -244,17 +251,19 @@ func (s *textFieldState) Build(ctx w.BuildContext) w.Widget {
 
 	col := []w.Widget{field}
 	support := tf.Helper
-	supportColor := sc.OnSurfaceVariant
+	supportColor := pick(st.HelperStyle.Color, sc.OnSurfaceVariant)
 	if isErr {
-		support, supportColor = tf.Error, sc.Error
+		support, supportColor = tf.Error, errC
 	}
 	if tf.Disabled {
 		supportColor = content
 	}
 	if support != "" || tf.MaxLength > 0 {
-		kids := []w.Widget{w.Expanded{Child: w.Text{Text: support, Style: Styled(th.Text.BodySmall, supportColor)}}}
+		hs := pickT(st.HelperStyle, th.Text.BodySmall)
+		hs.Color = supportColor
+		kids := []w.Widget{w.Expanded{Child: w.Text{Text: support, Style: hs}}}
 		if tf.MaxLength > 0 {
-			kids = append(kids, w.Text{Text: fmt.Sprintf("%d/%d", utf8.RuneCountInString(s.ctrl.Text()), tf.MaxLength), Style: Styled(th.Text.BodySmall, supportColor)})
+			kids = append(kids, w.Text{Text: fmt.Sprintf("%d/%d", utf8.RuneCountInString(s.ctrl.Text()), tf.MaxLength), Style: hs})
 		}
 		col = append(col, w.Padding{Padding: geom.InsetsLTRB(16, 4, 16, 0), Child: w.Row{Children: kids}})
 	}
@@ -281,6 +290,8 @@ type SearchBar struct {
 	OnChanged   func(string)
 	OnSubmitted func(string)
 	Autofocus   bool
+	// Style overrides Theme.SearchBar.
+	Style SearchBarTheme
 }
 
 func (SearchBar) CreateState() w.State { return &searchBarState{} }
@@ -309,29 +320,30 @@ func (s *searchBarState) Build(ctx w.BuildContext) w.Widget {
 	sb := w.WidgetOf[SearchBar](s)
 	th := ThemeOf(ctx)
 	sc := th.Scheme
+	st := merge(th.SearchBar, sb.Style)
 	lead := sb.Leading
 	if lead == nil {
-		lead = w.Padding{Padding: geom.InsetsLTRB(16, 0, 0, 0), Child: w.Icon{Icon: iconSearch, Size: 24, Color: sc.OnSurface}}
+		lead = w.Padding{Padding: geom.InsetsLTRB(16, 0, 0, 0), Child: w.Icon{Icon: iconSearch, Size: 24, Color: pick(st.IconColor, sc.OnSurface)}}
 	}
-	kids := []w.Widget{w.Expanded{Child: w.Padding{Padding: geom.InsetsHV(16, 0), Child: w.Stack{Children: s.content(sb, th)}}}}
+	kids := []w.Widget{w.Expanded{Child: w.Padding{Padding: geom.InsetsHV(16, 0), Child: w.Stack{Children: s.content(sb, th, st)}}}}
 	kids = append([]w.Widget{lead}, kids...)
 	if len(sb.Trailing) > 0 {
 		kids = append(kids, w.Padding{Padding: geom.InsetsLTRB(0, 0, 8, 0), Child: w.Row{ShrinkMain: true, Cross: w.CrossCenter, Children: sb.Trailing}})
 	}
-	return InkSurface{OnTap: func() { s.node.RequestFocus() }, NoFocus: true, Color: sc.SurfaceContainerHigh, ContentColor: sc.OnSurface,
-		Radius: CornerFull, Elevation: 1,
-		Child: w.SizedBox{Height: 56, Child: w.Row{Cross: w.CrossCenter, Children: kids}}}
+	return InkSurface{OnTap: func() { s.node.RequestFocus() }, NoFocus: true, Color: pick(st.BackgroundColor, sc.SurfaceContainerHigh),
+		ContentColor: pick(st.OverlayColor, sc.OnSurface), Radius: pickF(st.Radius, CornerFull), Elevation: pickI(st.Elevation, 1),
+		Child: w.SizedBox{Height: pickF(st.Height, 56), Child: w.Row{Cross: w.CrossCenter, Children: kids}}}
 }
 
-func (s *searchBarState) content(sb SearchBar, th Theme) []w.Widget {
+func (s *searchBarState) content(sb SearchBar, th Theme, st SearchBarTheme) []w.Widget {
 	sc := th.Scheme
 	kids := []w.Widget{w.EditableText{
-		Controller: s.ctrl, Focus: s.node, Style: Styled(th.Text.BodyLarge, sc.OnSurface),
+		Controller: s.ctrl, Focus: s.node, Style: pickTC(st.TextStyle, th.Text.BodyLarge, sc.OnSurface),
 		CursorColor: sc.Primary, SelectionColor: sc.Primary.WithAlpha(0.3), Autofocus: sb.Autofocus,
 		OnChanged: sb.OnChanged, OnSubmitted: sb.OnSubmitted,
 	}}
 	if s.ctrl.Text() == "" && sb.Hint != "" {
-		kids = append(kids, w.IgnorePointer{Ignoring: true, Child: w.Text{Text: sb.Hint, Style: Styled(th.Text.BodyLarge, sc.OnSurfaceVariant), MaxLines: 1}})
+		kids = append(kids, w.IgnorePointer{Ignoring: true, Child: w.Text{Text: sb.Hint, Style: pickTC(st.HintStyle, th.Text.BodyLarge, sc.OnSurfaceVariant), MaxLines: 1}})
 	}
 	return kids
 }

@@ -24,6 +24,8 @@ type SideSheet struct {
 	Width   float32    // default 360 (M3 allows 256–400)
 	// Open animates a standard sheet in and out (ignored for modal sheets).
 	Open bool
+	// Style overrides Theme.SideSheet.
+	Style SideSheetTheme
 
 	modal bool
 }
@@ -47,21 +49,23 @@ func (s *sideSheetState) Build(ctx w.BuildContext) w.Widget {
 	sh := w.WidgetOf[SideSheet](s)
 	th := ThemeOf(ctx)
 	sc := th.Scheme
+	st := merge(th.SideSheet, sh.Style)
 	width := sh.Width
 	if width == 0 {
-		width = 360
+		width = pickF(st.Width, 360)
 	}
+	iconC := pick(st.IconColor, sc.OnSurfaceVariant)
 
 	header := []w.Widget{}
 	if sh.OnBack != nil {
-		header = append(header, IconButton{Icon: iconArrowBack, Color: sc.OnSurfaceVariant, OnPressed: sh.OnBack})
+		header = append(header, IconButton{Icon: iconArrowBack, Color: iconC, OnPressed: sh.OnBack})
 	} else {
 		header = append(header, w.SizedBox{Width: 12})
 	}
 	header = append(header, w.Expanded{Child: w.Padding{Padding: geom.InsetsHV(4, 0),
-		Child: w.Text{Text: sh.Title, Style: Styled(th.Text.TitleLarge, sc.OnSurfaceVariant), MaxLines: 1, Ellipsis: true}}})
+		Child: w.Text{Text: sh.Title, Style: pickTC(st.TitleTextStyle, th.Text.TitleLarge, sc.OnSurfaceVariant), MaxLines: 1, Ellipsis: true}}})
 	if sh.OnClose != nil {
-		header = append(header, IconButton{Icon: iconClose, Color: sc.OnSurfaceVariant, OnPressed: sh.OnClose})
+		header = append(header, IconButton{Icon: iconClose, Color: iconC, OnPressed: sh.OnClose})
 	}
 	col := []w.Widget{
 		w.Padding{Padding: geom.InsetsLTRB(4, 12, 12, 12), Child: w.SizedBox{Height: 48, Child: w.Row{Cross: w.CrossCenter, Children: header}}},
@@ -72,20 +76,21 @@ func (s *sideSheetState) Build(ctx w.BuildContext) w.Widget {
 	}
 	col = append(col, w.Expanded{Child: w.ScrollView{Padding: geom.InsetsLTRB(24, 0, 24, 16), Child: body}})
 	if len(sh.Actions) > 0 {
-		col = append(col, Divider{}, w.Padding{Padding: geom.InsetsLTRB(24, 16, 24, 24),
+		col = append(col, Divider{Style: DividerTheme{Color: st.DividerColor}}, w.Padding{Padding: geom.InsetsLTRB(24, 16, 24, 24),
 			Child: w.Row{ShrinkMain: true, Spacing: 8, Children: sh.Actions}})
 	}
 	content := w.SizedBox{Width: width, Child: w.Column{Cross: w.CrossStretch, Children: col}}
 
 	if sh.modal {
 		// Modal: rounded leading corners, elevation 1, container-low tone.
-		bg, shadow := sc.SurfaceContainerLow, sc.Shadow
+		bg, shadow := pick(st.ModalBackgroundColor, sc.SurfaceContainerLow), sc.Shadow
+		radius := pickF(st.Radius, CornerLarge)
 		return w.AbsorbPointer{Child: w.CustomPaint{
 			Painter: func(c *render.Canvas, o geom.Offset, size geom.Size) {
 				// Only the leading (left) corners are rounded: extend right.
-				r := geom.Rect{X: o.X, Y: o.Y, W: size.W + CornerLarge, H: size.H}
-				paintShadow(c, r, CornerLarge, 1, shadow)
-				c.FillRoundRect(r, CornerLarge, bg)
+				r := geom.Rect{X: o.X, Y: o.Y, W: size.W + radius, H: size.H}
+				paintShadow(c, r, radius, 1, shadow)
+				c.FillRoundRect(r, radius, bg)
 			},
 			Child: content,
 		}}
@@ -102,10 +107,10 @@ func (s *sideSheetState) Build(ctx w.BuildContext) w.Widget {
 	if t <= 0 {
 		return w.SizedBox{}
 	}
-	line := sc.OutlineVariant
+	line, bg := pick(st.DividerColor, sc.OutlineVariant), pick(st.BackgroundColor, sc.Surface)
 	return w.SizeTransition{Horizontal: true, Factor: t, Child: w.CustomPaint{
 		Painter: func(c *render.Canvas, o geom.Offset, size geom.Size) {
-			c.FillRect(geom.RectFrom(o, size), sc.Surface)
+			c.FillRect(geom.RectFrom(o, size), bg)
 			c.FillRect(geom.Rect{X: o.X, Y: o.Y, W: 1, H: size.H}, line)
 		},
 		Child: content,
@@ -120,7 +125,8 @@ func ShowModalSideSheet(ctx w.BuildContext, sheet SideSheet, onClose func(result
 	if nav == nil {
 		return
 	}
-	scrim := ThemeOf(ctx).Scheme.Scrim.WithAlpha(0.32)
+	th := ThemeOf(ctx)
+	scrim := pick(th.SideSheet.BarrierColor, th.Scheme.Scrim.WithAlpha(0.32))
 	nav.Push(&w.Route{
 		Barrier: scrim, BarrierDismissible: true, Duration: 300 * time.Millisecond, OnPop: onClose,
 		Builder: func(ctx w.BuildContext) w.Widget {

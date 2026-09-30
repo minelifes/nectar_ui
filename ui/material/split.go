@@ -15,23 +15,27 @@ type SplitView struct {
 	Vertical bool
 	Gap      float32 // default 24 (M3 pane spacing)
 	OnResize func(sizes []float32)
+	// Style overrides Theme.SplitView.
+	Style SplitViewTheme
 }
 
 func (s SplitView) Build(ctx w.BuildContext) w.Widget {
-	sc := ThemeOf(ctx).Scheme
+	th := ThemeOf(ctx)
+	sc := th.Scheme
+	st := merge(th.SplitView, s.Style)
 	gap := s.Gap
 	if gap == 0 {
 		gap = 24
 	}
 	return w.SplitView{Panes: s.Panes, Vertical: s.Vertical, Gap: gap, OnResize: s.OnResize,
 		Divider: func(d w.DividerState) w.Widget {
-			col := sc.Outline
+			col := pick(st.HandleColor, sc.Outline)
 			thick, length := float32(4), float32(48)
 			if d.Hovered {
-				col = sc.OnSurfaceVariant
+				col = pick(st.HoverHandleColor, sc.OnSurfaceVariant)
 			}
 			if d.Dragging {
-				col, thick, length = sc.OnSurface, 12, 52
+				col, thick, length = pick(st.DraggedHandleColor, sc.OnSurface), 12, 52
 			}
 			return w.CustomPaint{Size: geom.Sz(geom.Inf, geom.Inf), Painter: func(c *render.Canvas, o geom.Offset, size geom.Size) {
 				var r geom.Rect

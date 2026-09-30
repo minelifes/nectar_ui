@@ -33,32 +33,42 @@ type AppBar struct {
 	ScrolledUnder bool
 	// NoAutoBack disables the automatic back button.
 	NoAutoBack bool
+	// Style overrides Theme.AppBar.
+	Style AppBarTheme
 }
 
 func (a AppBar) Build(ctx w.BuildContext) w.Widget {
 	th := ThemeOf(ctx)
 	s := th.Scheme
-	bg := s.Surface
+	st := merge(th.AppBar, a.Style)
+	bg := pick(st.BackgroundColor, s.Surface)
 	if a.ScrolledUnder {
-		bg = s.SurfaceContainer
+		bg = pick(st.ScrolledUnderColor, s.SurfaceContainer)
 	}
+	fg := pick(st.ForegroundColor, s.OnSurface)
 	lead := a.Leading
 	if lead == nil && !a.NoAutoBack {
 		if nav := w.NavigatorOf(ctx); nav != nil && w.CanPopRoute(ctx) {
-			lead = IconButton{Icon: iconArrowBack, Color: s.OnSurface, OnPressed: func() { nav.Pop(nil) }}
+			lead = IconButton{Icon: iconArrowBack, Color: fg, OnPressed: func() { nav.Pop(nil) }}
 		}
 	}
-	titleSt := Styled(th.Text.TitleLarge, s.OnSurface)
+	titleSt := pickTC(st.TitleTextStyle, th.Text.TitleLarge, fg)
+	variant := a.Variant
+	if variant == AppBarSmall && pickB(st.CenterTitle, false) {
+		variant = AppBarCenterAligned
+	} else if variant == AppBarCenterAligned && !pickB(st.CenterTitle, true) {
+		variant = AppBarSmall
+	}
 	row := []w.Widget{}
 	if lead != nil {
-		row = append(row, w.IconTheme{Size: 24, Color: s.OnSurface, Child: lead})
+		row = append(row, w.IconTheme{Size: 24, Color: fg, Child: lead})
 	} else {
 		row = append(row, w.SizedBox{Width: 12})
 	}
-	small := a.Variant == AppBarSmall || a.Variant == AppBarCenterAligned
+	small := variant == AppBarSmall || variant == AppBarCenterAligned
 	if small {
 		ta := alignStart
-		if a.Variant == AppBarCenterAligned {
+		if variant == AppBarCenterAligned {
 			ta = alignCenter
 		}
 		row = append(row, w.Expanded{Child: w.Padding{Padding: geom.InsetsHV(4, 0),
@@ -66,22 +76,30 @@ func (a AppBar) Build(ctx w.BuildContext) w.Widget {
 	} else {
 		row = append(row, w.Spacer{})
 	}
-	row = append(row, w.IconTheme{Size: 24, Color: s.OnSurfaceVariant, Child: w.Row{ShrinkMain: true, Cross: w.CrossCenter, Children: a.Actions}})
+	row = append(row, w.IconTheme{Size: 24, Color: pick(st.ActionsIconColor, s.OnSurfaceVariant), Child: w.Row{ShrinkMain: true, Cross: w.CrossCenter, Children: a.Actions}})
 	row = append(row, w.SizedBox{Width: 4})
-	bar := w.SizedBox{Height: 64, Child: w.Padding{Padding: geom.InsetsHV(4, 0), Child: w.Row{Cross: w.CrossCenter, Children: row}}}
+	barH := pickF(st.Height, 64)
+	bar := w.SizedBox{Height: barH, Child: w.Padding{Padding: geom.InsetsHV(4, 0), Child: w.Row{Cross: w.CrossCenter, Children: row}}}
+	elev := pickI(st.Elevation, 0)
+	box := func(child w.Widget) w.Widget {
+		if elev > 0 {
+			return Surface{Color: bg, Elevation: elev, ShadowColor: st.ShadowColor, Child: child}
+		}
+		return w.DecoratedBox{Color: bg, Child: child}
+	}
 	if small {
-		return w.DecoratedBox{Color: bg, Child: bar}
+		return box(bar)
 	}
-	big := Styled(th.Text.HeadlineSmall, s.OnSurface)
-	h, pb := float32(112), float32(24)
-	if a.Variant == AppBarLarge {
-		big, h, pb = Styled(th.Text.HeadlineMedium, s.OnSurface), 152, 28
+	big := pickTC(st.TitleTextStyle, th.Text.HeadlineSmall, fg)
+	h, pb := barH+48, float32(24)
+	if variant == AppBarLarge {
+		big, h, pb = pickTC(st.TitleTextStyle, th.Text.HeadlineMedium, fg), barH+88, 28
 	}
-	return w.DecoratedBox{Color: bg, Child: w.SizedBox{Height: h, Child: w.Column{Cross: w.CrossStretch, Children: []w.Widget{
+	return box(w.SizedBox{Height: h, Child: w.Column{Cross: w.CrossStretch, Children: []w.Widget{
 		bar,
 		w.Expanded{Child: w.Align{Alignment: geom.BottomLeft, Child: w.Padding{Padding: geom.InsetsLTRB(16, 0, 16, pb),
 			Child: w.Text{Text: a.Title, Style: big, MaxLines: 1, Ellipsis: true}}}},
-	}}}}
+	}}})
 }
 
 // ---------------------------------------------------------------------------
@@ -128,6 +146,8 @@ type NavigationBar struct {
 	Selected     int
 	OnSelected   func(int)
 	HideLabels   bool
+	// Style overrides Theme.NavigationBar.
+	Style NavigationBarTheme
 }
 
 func (NavigationBar) CreateState() w.State { return &navBarState{} }
@@ -158,17 +178,18 @@ func (s *navBarState) Build(ctx w.BuildContext) w.Widget {
 	nb := w.WidgetOf[NavigationBar](s)
 	th := ThemeOf(ctx)
 	sc := th.Scheme
+	st := merge(th.NavigationBar, nb.Style)
 	s.sync(len(nb.Destinations), nb.Selected)
 	items := make([]w.Widget, len(nb.Destinations))
 	for i, d := range nb.Destinations {
 		i, d := i, d
 		sel := i == nb.Selected
-		ic, lc := sc.OnSurfaceVariant, sc.OnSurfaceVariant
+		ic, lc := pick(st.IconColor, sc.OnSurfaceVariant), pick(st.LabelColor, sc.OnSurfaceVariant)
 		if sel {
-			ic, lc = sc.OnSecondaryContainer, sc.OnSurface
+			ic, lc = pick(st.SelectedIconColor, sc.OnSecondaryContainer), pick(st.SelectedLabelColor, sc.OnSurface)
 		}
 		a := s.anims[i]
-		col := sc.SecondaryContainer
+		col := pick(st.IndicatorColor, sc.SecondaryContainer)
 		iconW := w.CustomPaint{Size: geom.Sz(64, 32),
 			Painter: func(c *render.Canvas, o geom.Offset, size geom.Size) {
 				indicator(c, geom.Pt(o.X+size.W/2, o.Y+size.H/2), 64, 32, a.Value(), col)
@@ -176,16 +197,16 @@ func (s *navBarState) Build(ctx w.BuildContext) w.Widget {
 			Child: w.Center{Child: badged(w.Icon{Icon: d.icon(sel), Size: 24, Color: ic}, d.Badge)}}
 		kids := []w.Widget{iconW}
 		if !nb.HideLabels {
-			kids = append(kids, w.SizedBox{Height: 4}, w.Text{Text: d.Label, Style: Styled(th.Text.LabelMedium, lc), MaxLines: 1})
+			kids = append(kids, w.SizedBox{Height: 4}, w.Text{Text: d.Label, Style: pickTC(st.LabelTextStyle, th.Text.LabelMedium, lc), MaxLines: 1})
 		}
 		var tap func()
 		if nb.OnSelected != nil {
 			tap = func() { nb.OnSelected(i) }
 		}
-		items[i] = w.Expanded{Child: InkSurface{OnTap: tap, ContentColor: sc.OnSurface, NoFocus: false,
+		items[i] = w.Expanded{Child: InkSurface{OnTap: tap, ContentColor: pick(st.OverlayColor, sc.OnSurface), NoFocus: false,
 			Child: w.Column{Main: w.MainCenter, Cross: w.CrossCenter, Children: kids}}}
 	}
-	return w.Container{Color: sc.SurfaceContainer, Height: 80,
+	return w.Container{Color: pick(st.BackgroundColor, sc.SurfaceContainer), Height: pickF(st.Height, 80),
 		Child: w.Padding{Padding: geom.InsetsHV(8, 0), Child: w.Row{Cross: w.CrossStretch, Spacing: 8, Children: items}}}
 }
 
@@ -196,6 +217,8 @@ type NavigationRail struct {
 	OnSelected   func(int)
 	Leading      w.Widget // e.g. a FAB or menu button
 	Trailing     w.Widget
+	// Style overrides Theme.NavigationRail.
+	Style NavigationRailTheme
 }
 
 func (NavigationRail) CreateState() w.State { return &navRailState{} }
@@ -206,6 +229,8 @@ func (s *navRailState) Build(ctx w.BuildContext) w.Widget {
 	nr := w.WidgetOf[NavigationRail](s)
 	th := ThemeOf(ctx)
 	sc := th.Scheme
+	st := merge(th.NavigationRail, nr.Style)
+	width := pickF(st.Width, 80)
 	s.sync(len(nr.Destinations), nr.Selected)
 	kids := []w.Widget{w.SizedBox{Height: 12}}
 	if nr.Leading != nil {
@@ -214,31 +239,31 @@ func (s *navRailState) Build(ctx w.BuildContext) w.Widget {
 	for i, d := range nr.Destinations {
 		i, d := i, d
 		sel := i == nr.Selected
-		ic, lc := sc.OnSurfaceVariant, sc.OnSurfaceVariant
+		ic, lc := pick(st.IconColor, sc.OnSurfaceVariant), pick(st.LabelColor, sc.OnSurfaceVariant)
 		if sel {
-			ic, lc = sc.OnSecondaryContainer, sc.OnSurface
+			ic, lc = pick(st.SelectedIconColor, sc.OnSecondaryContainer), pick(st.SelectedLabelColor, sc.OnSurface)
 		}
 		a := s.anims[i]
-		col := sc.SecondaryContainer
+		col := pick(st.IndicatorColor, sc.SecondaryContainer)
 		var tap func()
 		if nr.OnSelected != nil {
 			tap = func() { nr.OnSelected(i) }
 		}
-		kids = append(kids, InkSurface{OnTap: tap, ContentColor: sc.OnSurface, Radius: CornerLarge,
-			Child: w.SizedBox{Width: 80, Height: 56, Child: w.Column{Main: w.MainCenter, Cross: w.CrossCenter, Children: []w.Widget{
+		kids = append(kids, InkSurface{OnTap: tap, ContentColor: pick(st.OverlayColor, sc.OnSurface), Radius: CornerLarge,
+			Child: w.SizedBox{Width: width, Height: 56, Child: w.Column{Main: w.MainCenter, Cross: w.CrossCenter, Children: []w.Widget{
 				w.CustomPaint{Size: geom.Sz(56, 32),
 					Painter: func(c *render.Canvas, o geom.Offset, size geom.Size) {
 						indicator(c, geom.Pt(o.X+size.W/2, o.Y+size.H/2), 56, 32, a.Value(), col)
 					},
 					Child: w.Center{Child: badged(w.Icon{Icon: d.icon(sel), Size: 24, Color: ic}, d.Badge)}},
 				w.SizedBox{Height: 4},
-				w.Text{Text: d.Label, Style: Styled(th.Text.LabelMedium, lc), MaxLines: 1},
+				w.Text{Text: d.Label, Style: pickTC(st.LabelTextStyle, th.Text.LabelMedium, lc), MaxLines: 1},
 			}}}}, w.SizedBox{Height: 12})
 	}
 	if nr.Trailing != nil {
 		kids = append(kids, w.Spacer{}, nr.Trailing, w.SizedBox{Height: 16})
 	}
-	return w.Container{Color: sc.Surface, Width: 80, Child: w.Column{Cross: w.CrossCenter, Children: kids}}
+	return w.Container{Color: pick(st.BackgroundColor, sc.Surface), Width: width, Child: w.Column{Cross: w.CrossCenter, Children: kids}}
 }
 
 // NavigationDrawer lists destinations in a side sheet. Headlines (Label
@@ -248,11 +273,15 @@ type NavigationDrawer struct {
 	Destinations []NavigationDestination
 	Selected     int
 	OnSelected   func(int)
+	// Style overrides Theme.NavigationDrawer.
+	Style NavigationDrawerTheme
 }
 
 func (d NavigationDrawer) Build(ctx w.BuildContext) w.Widget {
 	th := ThemeOf(ctx)
 	sc := th.Scheme
+	st := merge(th.NavigationDrawer, d.Style)
+	radius, itemH := pickF(st.Radius, CornerLarge), pickF(st.ItemHeight, 56)
 	kids := []w.Widget{w.SizedBox{Height: 12}}
 	if d.Header != nil {
 		kids = append(kids, w.Padding{Padding: geom.InsetsLTRB(16, 16, 16, 12), Child: d.Header})
@@ -261,35 +290,36 @@ func (d NavigationDrawer) Build(ctx w.BuildContext) w.Widget {
 	for _, dest := range d.Destinations {
 		if dest.Icon == nil {
 			kids = append(kids, w.Padding{Padding: geom.InsetsLTRB(28, 18, 16, 18),
-				Child: w.Text{Text: dest.Label, Style: Styled(th.Text.TitleSmall, sc.OnSurfaceVariant)}})
+				Child: w.Text{Text: dest.Label, Style: Styled(th.Text.TitleSmall, pick(st.HeadlineColor, sc.OnSurfaceVariant))}})
 			continue
 		}
 		i := idx
 		idx++
 		sel := i == d.Selected
-		bg, fg := geom.Transparent, sc.OnSurfaceVariant
+		bg, fg, ic := geom.Transparent, pick(st.LabelColor, sc.OnSurfaceVariant), pick(st.IconColor, sc.OnSurfaceVariant)
 		if sel {
-			bg, fg = sc.SecondaryContainer, sc.OnSecondaryContainer
+			bg, fg, ic = pick(st.IndicatorColor, sc.SecondaryContainer), pick(st.SelectedLabelColor, sc.OnSecondaryContainer), pick(st.SelectedIconColor, sc.OnSecondaryContainer)
 		}
 		var tap func()
 		if d.OnSelected != nil {
 			tap = func() { d.OnSelected(i) }
 		}
-		row := []w.Widget{w.Icon{Icon: dest.icon(sel), Size: 24, Color: fg},
-			w.Expanded{Child: w.Text{Text: dest.Label, Style: Styled(th.Text.LabelLarge, fg), MaxLines: 1, Ellipsis: true}}}
+		lst := pickTC(st.LabelTextStyle, th.Text.LabelLarge, fg)
+		row := []w.Widget{w.Icon{Icon: dest.icon(sel), Size: 24, Color: ic},
+			w.Expanded{Child: w.Text{Text: dest.Label, Style: lst, MaxLines: 1, Ellipsis: true}}}
 		if dest.Badge != "" {
-			row = append(row, w.Text{Text: dest.Badge, Style: Styled(th.Text.LabelLarge, fg)})
+			row = append(row, w.Text{Text: dest.Badge, Style: lst})
 		}
 		kids = append(kids, w.Padding{Padding: geom.InsetsHV(12, 0), Child: InkSurface{OnTap: tap, Color: bg, ContentColor: fg, Radius: CornerFull,
-			Child: w.SizedBox{Height: 56, Child: w.Padding{Padding: geom.InsetsLTRB(16, 0, 24, 0),
+			Child: w.SizedBox{Height: itemH, Child: w.Padding{Padding: geom.InsetsLTRB(16, 0, 24, 0),
 				Child: w.Row{Cross: w.CrossCenter, Spacing: 12, Children: row}}}}})
 	}
 	return w.CustomPaint{
 		Painter: func(c *render.Canvas, o geom.Offset, size geom.Size) {
 			// Rounded on the trailing edge only: extend the shape leftwards.
-			c.FillRoundRect(geom.Rect{X: o.X - CornerLarge, Y: o.Y, W: size.W + CornerLarge, H: size.H}, CornerLarge, sc.SurfaceContainerLow)
+			c.FillRoundRect(geom.Rect{X: o.X - radius, Y: o.Y, W: size.W + radius, H: size.H}, radius, pick(st.BackgroundColor, sc.SurfaceContainerLow))
 		},
-		Child: w.SizedBox{Width: 360, Child: w.ListView{Children: kids}},
+		Child: w.SizedBox{Width: pickF(st.Width, 360), Child: w.ListView{Children: kids}},
 	}
 }
 
@@ -309,6 +339,8 @@ type TabBar struct {
 	Selected  int
 	OnChanged func(int)
 	Secondary bool
+	// Style overrides Theme.TabBar.
+	Style TabBarTheme
 }
 
 func (TabBar) CreateState() w.State { return &tabBarState{} }
@@ -327,6 +359,7 @@ func (s *tabBarState) Build(ctx w.BuildContext) w.Widget {
 	tb := w.WidgetOf[TabBar](s)
 	th := ThemeOf(ctx)
 	sc := th.Scheme
+	st := merge(th.TabBar, tb.Style)
 	s.pos.Set(float32(tb.Selected))
 	hasIcon := false
 	for _, t := range tb.Tabs {
@@ -338,26 +371,28 @@ func (s *tabBarState) Build(ctx w.BuildContext) w.Widget {
 	if hasIcon && !tb.Secondary {
 		h = 64
 	}
+	h = pickF(st.Height, h)
 	labelW := make([]float32, len(tb.Tabs))
 	tabs := make([]w.Widget, len(tb.Tabs))
 	for i, t := range tb.Tabs {
 		i := i
 		sel := i == tb.Selected
-		fg := sc.OnSurfaceVariant
+		fg := pick(st.UnselectedLabelColor, sc.OnSurfaceVariant)
 		if sel {
 			fg = sc.Primary
 			if tb.Secondary {
 				fg = sc.OnSurface
 			}
+			fg = pick(st.LabelColor, fg)
 		}
-		st := Styled(th.Text.TitleSmall, fg)
-		labelW[i] = text.Layout(t.Text, st, text.Options{}).Width
+		ls := pickTC(st.LabelStyle, th.Text.TitleSmall, fg)
+		labelW[i] = text.Layout(t.Text, ls, text.Options{}).Width
 		kids := []w.Widget{}
 		if t.Icon != nil {
 			kids = append(kids, w.Icon{Icon: t.Icon, Size: 24, Color: fg})
 		}
 		if t.Text != "" {
-			kids = append(kids, w.Text{Text: t.Text, Style: st, MaxLines: 1})
+			kids = append(kids, w.Text{Text: t.Text, Style: ls, MaxLines: 1})
 		}
 		var content w.Widget = w.Column{Main: w.MainCenter, Cross: w.CrossCenter, Spacing: 2, Children: kids}
 		if tb.Secondary || !hasIcon {
@@ -367,11 +402,12 @@ func (s *tabBarState) Build(ctx w.BuildContext) w.Widget {
 		if tb.OnChanged != nil {
 			tap = func() { tb.OnChanged(i) }
 		}
-		tabs[i] = w.Expanded{Child: InkSurface{OnTap: tap, ContentColor: fg, Child: w.SizedBox{Height: h, Child: content}}}
+		tabs[i] = w.Expanded{Child: InkSurface{OnTap: tap, ContentColor: pick(st.OverlayColor, fg), Child: w.SizedBox{Height: h, Child: content}}}
 	}
 	n := len(tb.Tabs)
 	secondary := tb.Secondary
-	line, prim := sc.SurfaceVariant, sc.Primary
+	line, prim := pick(st.DividerColor, sc.SurfaceVariant), pick(st.IndicatorColor, sc.Primary)
+	ih := pickF(st.IndicatorHeight, 0)
 	return w.CustomPaint{
 		ForegroundPainter: func(c *render.Canvas, o geom.Offset, size geom.Size) {
 			c.FillRect(geom.Rect{X: o.X, Y: o.Y + size.H - 1, W: size.W, H: 1}, line)
@@ -384,14 +420,22 @@ func (s *tabBarState) Build(ctx w.BuildContext) w.Widget {
 			i1 := min(i0+1, n-1)
 			f := p - float32(i0)
 			if secondary {
-				c.FillRect(geom.Rect{X: o.X + tw*p, Y: o.Y + size.H - 2, W: tw, H: 2}, prim)
+				hh := ih
+				if hh == 0 {
+					hh = 2
+				}
+				c.FillRect(geom.Rect{X: o.X + tw*p, Y: o.Y + size.H - hh, W: tw, H: hh}, prim)
 				return
 			}
 			// Primary indicator: 3px, rounded on top, as wide as the label.
 			lw := max(widgetsLerp(labelW[i0], labelW[i1], f), 24)
 			cx := o.X + tw*p + tw/2
 			c.PushClip(geom.RectFrom(o, size))
-			c.FillRoundRect(geom.Rect{X: cx - lw/2, Y: o.Y + size.H - 3, W: lw, H: 6}, 3, prim)
+			hh := ih
+			if hh == 0 {
+				hh = 3
+			}
+			c.FillRoundRect(geom.Rect{X: cx - lw/2, Y: o.Y + size.H - hh, W: lw, H: 2 * hh}, hh, prim)
 			c.PopClip()
 		},
 		Child: w.ClipRect{Child: w.Row{Children: tabs}},
@@ -418,16 +462,20 @@ func (v TabBarView) Build(w.BuildContext) w.Widget {
 type BottomAppBar struct {
 	Actions []w.Widget
 	FAB     w.Widget
+	// Style overrides Theme.BottomAppBar.
+	Style BottomAppBarTheme
 }
 
 func (b BottomAppBar) Build(ctx w.BuildContext) w.Widget {
-	sc := ThemeOf(ctx).Scheme
+	th := ThemeOf(ctx)
+	sc := th.Scheme
+	st := merge(th.BottomAppBar, b.Style)
 	kids := []w.Widget{w.Row{ShrinkMain: true, Cross: w.CrossCenter, Spacing: 4, Children: b.Actions}, w.Spacer{}}
 	if b.FAB != nil {
 		kids = append(kids, b.FAB)
 	}
-	return w.Container{Color: sc.SurfaceContainer, Height: 80, Padding: geom.InsetsLTRB(4, 12, 16, 12),
-		Child: w.IconTheme{Size: 24, Color: sc.OnSurfaceVariant, Child: w.Row{Cross: w.CrossCenter, Children: kids}}}
+	return w.Container{Color: pick(st.Color, sc.SurfaceContainer), Height: pickF(st.Height, 80), Padding: pickE(st.Padding, geom.InsetsLTRB(4, 12, 16, 12)),
+		Child: w.IconTheme{Size: 24, Color: pick(st.IconColor, sc.OnSurfaceVariant), Child: w.Row{Cross: w.CrossCenter, Children: kids}}}
 }
 
 // ---------------------------------------------------------------------------
@@ -483,8 +531,9 @@ func (s scaffoldScope) UpdateShouldNotify(old w.Widget) bool {
 
 func (s *ScaffoldState) Build(ctx w.BuildContext) w.Widget {
 	sf := w.WidgetOf[Scaffold](s)
-	sc := ThemeOf(ctx).Scheme
-	bg := sc.Surface
+	th := ThemeOf(ctx)
+	sc := th.Scheme
+	bg := pick(th.ScaffoldBackground, sc.Surface)
 	if sf.Background != nil {
 		bg = *sf.Background
 	}

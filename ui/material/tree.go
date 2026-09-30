@@ -27,6 +27,8 @@ type TreeView struct {
 	TapSelectsOnly bool
 	ShrinkWrap     bool
 	Row            func(ctx w.BuildContext, row w.TreeRow) w.Widget
+	// Style overrides Theme.TreeView.
+	Style TreeViewTheme
 }
 
 func (t TreeView) Build(ctx w.BuildContext) w.Widget {
@@ -39,24 +41,25 @@ func (t TreeView) Build(ctx w.BuildContext) w.Widget {
 	if indent == 0 {
 		indent = 20
 	}
+	tt := merge(th.TreeView, t.Style)
 	st := w.TreeStyle{
-		Text:          Styled(th.Text.LabelLarge, sc.OnSurfaceVariant),
-		SelectedText:  sc.OnSecondaryContainer,
-		IconColor:     sc.OnSurfaceVariant,
-		SelectedColor: sc.SecondaryContainer,
-		HoverColor:    sc.OnSurface.WithAlpha(HoverOpacity),
-		FocusColor:    sc.Secondary,
-		Radius:        CornerFull,
+		Text:          pickTC(tt.TextStyle, th.Text.LabelLarge, sc.OnSurfaceVariant),
+		SelectedText:  pick(tt.SelectedTextColor, sc.OnSecondaryContainer),
+		IconColor:     pick(tt.IconColor, sc.OnSurfaceVariant),
+		SelectedColor: pick(tt.SelectedColor, sc.SecondaryContainer),
+		HoverColor:    pick(tt.HoverColor, sc.OnSurface.WithAlpha(HoverOpacity)),
+		FocusColor:    pick(tt.FocusColor, sc.Secondary),
+		Radius:        pickF(tt.Radius, CornerFull),
 		Inset:         4,
 	}
 	if t.ShowGuides {
-		st.GuideColor = sc.OutlineVariant
+		st.GuideColor = pick(tt.GuideColor, sc.OutlineVariant)
 	}
 	return w.TreeView{
 		Roots: t.Roots, Controller: t.Controller,
 		OnSelect: t.OnSelect, OnActivate: t.OnActivate, OnToggle: t.OnToggle,
 		RowHeight: h, Indent: indent, TapSelectsOnly: t.TapSelectsOnly, ShrinkWrap: t.ShrinkWrap,
-		Style: st, ThumbColor: sc.OnSurface.WithAlpha(0.3), Row: t.Row,
+		Style: st, ThumbColor: pick(tt.ScrollbarColor, sc.OnSurface.WithAlpha(0.3)), Row: t.Row,
 	}
 }
 
@@ -84,10 +87,13 @@ type FileTree struct {
 	Indent     float32
 	ShowGuides bool
 	ShrinkWrap bool
+	// Style overrides Theme.TreeView.
+	Style TreeViewTheme
 }
 
 func (f FileTree) Build(ctx w.BuildContext) w.Widget {
-	sc := ThemeOf(ctx).Scheme
+	th := ThemeOf(ctx)
+	folder := pick(merge(th.TreeView, f.Style).FolderColor, th.Scheme.Primary)
 	root := f.Root
 	if root == "" {
 		root = "."
@@ -102,10 +108,10 @@ func (f FileTree) Build(ctx w.BuildContext) w.Widget {
 			}
 			roots = []w.TreeNode{{Key: root, Label: label, Branch: true, Expanded: true,
 				Icon: FileIcon(root, true, false), ExpandedIcon: FileIcon(root, true, true),
-				Load: func() []w.TreeNode { return colorFolders(w.FileNodes(f.FS, root, opt), sc.Primary) }}}
-			roots[0].IconColor = sc.Primary
+				Load: func() []w.TreeNode { return colorFolders(w.FileNodes(f.FS, root, opt), folder) }}}
+			roots[0].IconColor = folder
 		} else {
-			roots = colorFolders(w.FileNodes(f.FS, root, opt), sc.Primary)
+			roots = colorFolders(w.FileNodes(f.FS, root, opt), folder)
 		}
 	}
 	entry := func(n w.TreeNode) fs.DirEntry {
@@ -114,7 +120,7 @@ func (f FileTree) Build(ctx w.BuildContext) w.Widget {
 	}
 	return TreeView{
 		Roots: roots, Controller: f.Controller,
-		RowHeight: f.RowHeight, Indent: f.Indent, ShowGuides: f.ShowGuides, ShrinkWrap: f.ShrinkWrap,
+		RowHeight: f.RowHeight, Indent: f.Indent, ShowGuides: f.ShowGuides, ShrinkWrap: f.ShrinkWrap, Style: f.Style,
 		OnSelect: func(n w.TreeNode) {
 			if f.OnSelect != nil {
 				f.OnSelect(n.Key, entry(n))

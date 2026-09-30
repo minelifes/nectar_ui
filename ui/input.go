@@ -25,6 +25,10 @@ type inputQueue struct {
 
 	dispatcher *render.PointerDispatcher
 	cursor     render.Cursor
+
+	// afterShortcut is set by a key press held with a shortcut modifier:
+	// the text the platform sends with it isn't typing (see deliver).
+	afterShortcut bool
 }
 
 // queuedEvent is one platform event: pointer/scroll, key press, text or
@@ -110,6 +114,7 @@ func (a *App) processInput() {
 	for _, e := range events {
 		switch {
 		case e.pointer != nil:
+			q.afterShortcut = false
 			down := e.pointer.Kind == render.PointerDown
 			if down {
 				fm.BeginPointerDown()
@@ -118,18 +123,45 @@ func (a *App) processInput() {
 			if down {
 				fm.EndPointerDown()
 			}
-		case e.key != nil:
-			fm.HandleKey(*e.key)
-		case e.text != "":
-			fm.HandleText(e.text)
-		case e.ime != nil:
-			fm.HandleIME(*e.ime)
+		default:
+			q.deliver(fm, e)
 		}
 	}
 	if c := q.dispatcher.Cursor(); c != q.cursor {
 		q.cursor = c
 		a.gpuApp.SetCursor(cursorShape(c))
 	}
+}
+
+// deliver routes a keyboard event (key, text or IME) to the focus manager.
+//
+// Platforms send a key press and, separately, the text it types. For
+// shortcuts that text is bogus: macOS reports ⌘V as KeyV+⌘ plus the text
+// "v", X11 and Wayland do the same for Ctrl+V. Delivered, it would type the
+// letter over the selection right after the copy or paste. So text that
+// follows a key press held with ⌘/Super, or with Ctrl but not Alt, is
+// dropped until the next key press. (Ctrl+Alt is AltGr on Windows and types
+// real characters such as @ and €; Alt alone is macOS Option, é and ©.)
+func (q *inputQueue) deliver(fm *widgets.FocusManager, e queuedEvent) {
+	switch {
+	case e.key != nil:
+		q.afterShortcut = isShortcutChord(e.key.Mods)
+		fm.HandleKey(*e.key)
+	case e.text != "":
+		if q.afterShortcut {
+			return
+		}
+		fm.HandleText(e.text)
+	case e.ime != nil:
+		q.afterShortcut = false
+		fm.HandleIME(*e.ime)
+	}
+}
+
+// isShortcutChord reports whether keys pressed with mods are shortcuts
+// rather than typing.
+func isShortcutChord(m widgets.Modifiers) bool {
+	return m&widgets.ModSuper != 0 || m&widgets.ModControl != 0 && m&widgets.ModAlt == 0
 }
 
 func convertPointer(ev gpucontext.PointerEvent) (render.PointerEvent, bool) {

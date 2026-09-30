@@ -45,6 +45,8 @@ Name, bundle id, version and icon come from the app's `nectar.json`. The icon is
 - **Windows:** the icon and manifest are written to a temporary `.syso` resource that the Go linker embeds in the `.exe`.
 - **Linux:** the window icon is set at runtime via `ui.Config.WithIcon`.
 
+**Terminal output:** the CLI uses colors and symbols when it writes to a terminal (`nectar dev` shows timestamped status lines, highlighted build errors, and the app's own output indented behind a `│` bar). Piped or redirected output is plain text. Set `NO_COLOR=1` to turn colors off, or `FORCE_COLOR=1` to keep them in a CI log. Windows 10+ consoles are switched to ANSI mode automatically.
+
 `nectar templates` lists the templates. Their sources live in `cmd/nectar/templates` (`[[.Engine]]`-style placeholders, `_name` → `.name`). `NECTAR_BUILD_TEST=1 go test ./cmd/nectar` generates each one against this checkout and runs its tests.
 
 ## Packages (dependencies point downwards only)

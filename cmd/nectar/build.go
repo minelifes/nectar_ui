@@ -117,8 +117,11 @@ func cmdBuild(args []string) error {
 	fs.StringVar(&o.Out, "o", "", "output folder (default: dist inside the app)")
 	fs.BoolVar(&o.Console, "console", false, "windows: show a console window (for log output)")
 	fs.Usage = func() {
-		fmt.Fprint(os.Stderr, "Usage: nectar build [flags] [app dir]\n\nPackages the app with its icon: macOS .app, Windows .exe, Linux folder with .desktop.\n\n")
-		fs.PrintDefaults()
+		p := newPrinter(os.Stderr)
+		p.printf("\n%s %s %s\n\n", p.bold("Usage:"), p.green("nectar build"), p.dim("[flags] [app dir]"))
+		p.printf("Packages the app with its icon: macOS .app, Windows .exe, Linux folder with .desktop.\n\n")
+		p.flags(fs)
+		p.printf("\n")
 	}
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -132,7 +135,10 @@ func cmdBuild(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("\nBuilt %s\n", path)
+	p := newPrinter(os.Stdout)
+	p.printf("\n")
+	p.success("Built %s", relPath(".", path))
+	p.printf("\n")
 	return nil
 }
 
@@ -163,15 +169,16 @@ func Build(o BuildOptions) (string, error) {
 	if err := os.MkdirAll(o.Out, 0o755); err != nil {
 		return "", err
 	}
+	p := newPrinter(o.Log)
+	p.header("build", p.bold(m.Name)+" "+p.dim(m.Version+" for ")+p.cyan(o.OS+"/"+o.Arch))
 	icon, err := loadIcon(filepath.Join(o.Dir, m.Icon))
 	if errors.Is(err, os.ErrNotExist) {
-		fmt.Fprintf(o.Log, "  note  %s not found; using a generated icon (nectar icon writes one)\n", m.Icon)
+		p.step("note", m.Icon+" not found; using a generated icon (nectar icon writes one)")
 		icon, err = defaultIcon(0x6750A4, m.Name), nil
 	}
 	if err != nil {
 		return "", err
 	}
-	fmt.Fprintf(o.Log, "Building %s %s for %s/%s\n", m.Name, m.Version, o.OS, o.Arch)
 	switch o.OS {
 	case "darwin":
 		return buildMac(o, m, icon)
@@ -190,12 +197,23 @@ func goBuild(o BuildOptions, goos, goarch, out, ldflags string) error {
 		return err
 	}
 	args := []string{"build", "-trimpath", "-ldflags", strings.TrimSpace("-s -w " + ldflags), "-o", abs, "."}
-	fmt.Fprintf(o.Log, "  run   GOOS=%s GOARCH=%s go %s\n", goos, goarch, strings.Join(args, " "))
+	p := newPrinter(o.Log)
+	p.step("go", "build "+p.cyan(goos+"/"+goarch)+p.dim(" → "+relPath(o.Dir, abs)))
 	cmd := exec.Command("go", args...)
 	cmd.Dir = o.Dir
-	cmd.Stdout, cmd.Stderr = o.Log, o.Log
+	var log bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &log, &log
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS="+goos, "GOARCH="+goarch)
-	return cmd.Run()
+	err = cmd.Run()
+	if log.Len() > 0 {
+		g := &gutter{w: p.w, prefix: "    "}
+		io.WriteString(g, p.goErrors(log.String()))
+		g.Flush()
+	}
+	if err != nil {
+		return fmt.Errorf("go build for %s/%s failed", goos, goarch)
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -231,7 +249,7 @@ func buildMac(o BuildOptions, m Manifest, icon image.Image) (string, error) {
 		if err := writeFat(bin, slices); err != nil {
 			return "", err
 		}
-		fmt.Fprintln(o.Log, "  lipo  arm64 + amd64 → universal binary")
+		newPrinter(o.Log).step("lipo", "arm64 + amd64 → universal binary")
 	} else if err := goBuild(o, "darwin", o.Arch, bin, ""); err != nil {
 		return "", err
 	}
@@ -248,7 +266,7 @@ func buildMac(o BuildOptions, m Manifest, icon image.Image) (string, error) {
 	// identity (codesign -s "Developer ID …") and notarize to distribute.
 	if runtime.GOOS == "darwin" {
 		if _, err := exec.LookPath("codesign"); err == nil {
-			fmt.Fprintln(o.Log, "  run   codesign --force --deep --sign -", app)
+			newPrinter(o.Log).step("sign", "codesign --force --deep --sign - "+relPath(o.Dir, app)+" (ad hoc)")
 			cmd := exec.Command("codesign", "--force", "--deep", "--sign", "-", app)
 			cmd.Stdout, cmd.Stderr = o.Log, o.Log
 			if err := cmd.Run(); err != nil {
@@ -410,4 +428,17 @@ echo "Installed %[1]s. It shows up in your app menu."
 		return "", err
 	}
 	return dir, nil
+}
+
+// relPath shows path relative to base when it's inside it.
+func relPath(base, path string) string {
+	b, err1 := filepath.Abs(base)
+	a, err2 := filepath.Abs(path)
+	if err1 != nil || err2 != nil {
+		return path
+	}
+	if r, err := filepath.Rel(b, a); err == nil && !strings.HasPrefix(r, "..") {
+		return r
+	}
+	return path
 }

@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -35,10 +36,12 @@ func sample(k Kind, n int) any {
 	panic("kind")
 }
 
-// fullProject edits every field the editor offers.
+// fullProject edits every field the editor offers, with different values
+// in the light and the dark design.
 func fullProject(t *testing.T) *Project {
 	p := NewProject()
-	p.Seed = geom.Hex(0x0B57D0)
+	p.SetSeed(false, geom.Hex(0x0B57D0))
+	p.SetSeed(true, geom.Hex(0x8B5000))
 	n := 0
 	for _, sec := range Sections() {
 		for _, f := range sec.Fields {
@@ -46,17 +49,25 @@ func fullProject(t *testing.T) *Project {
 			if k, err := KindOf(f.Path); err != nil || k != f.Kind {
 				t.Fatalf("%s: KindOf = %v, %v; section says %v", f.Path, k, err, f.Kind)
 			}
-			p.Set(f.Path, false, sample(f.Kind, n))
-			if isScheme(f.Path) {
-				p.Set(f.Path, true, sample(f.Kind, n+1))
-			}
+			must(t, p.Set(f.Path, false, sample(f.Kind, n)))
+			must(t, p.Set(f.Path, true, sample(f.Kind, n+1)))
 		}
 	}
-	p.Set("Card.Color", false, m.Transparent)
+	must(t, p.Set("Card.Color", false, m.Transparent))
 	if n < 300 {
 		t.Fatalf("only %d editable fields", n)
 	}
 	return p
+}
+
+// setterLine matches field assignments like "\tt.Card.Radius = ...".
+var setterLine = regexp.MustCompile(`(?m)^\s*t\.[A-Z]\w*(\.\w+)* = `)
+
+func must(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestSectionsCoverTheTheme(t *testing.T) {
@@ -91,6 +102,17 @@ func TestApplyAndValue(t *testing.T) {
 	if light.Scheme.Primary != geom.Hex(0xFF0000) || dark.Scheme.Primary != geom.Hex(0x00FF00) || !dark.Scheme.Dark {
 		t.Fatal("scheme edits must be per mode")
 	}
+	// The dark design is independent: none of the light edits reach it.
+	if dark.Card.Radius != nil || dark.Input.Outlined != nil || dark.Text.BodyLarge.Size == 18 {
+		t.Fatal("light edits leaked into the dark design")
+	}
+	if !reflect.DeepEqual(p.Theme(true).Card, m.NewTheme(m.BaselineSeed, true).Card) {
+		t.Fatal("dark card theme should be untouched")
+	}
+	p.SetSeed(true, geom.Hex(0x386A20))
+	if p.Seed(false) != m.BaselineSeed || p.Theme(true).Seed != geom.Hex(0x386A20) {
+		t.Fatal("seeds must be per mode")
+	}
 	if light.Carousel.ItemColors[1] != geom.Hex(0x123456) {
 		t.Fatal("array item edit not applied")
 	}
@@ -111,23 +133,24 @@ func TestApplyAndValue(t *testing.T) {
 
 func TestJSONRoundTrip(t *testing.T) {
 	p := fullProject(t)
-	data, err := json.Marshal(p)
-	if err != nil {
-		t.Fatal(err)
-	}
 	q := NewProject()
-	if err := json.Unmarshal(data, q); err != nil {
-		t.Fatal(err)
-	}
 	for _, dark := range []bool{false, true} {
+		data, err := json.Marshal(*p.Mode(dark))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(data, q.Mode(dark)); err != nil {
+			t.Fatal(err)
+		}
 		if !reflect.DeepEqual(p.Theme(dark), q.Theme(dark)) {
 			t.Fatalf("round trip changed the theme (dark=%v)", dark)
 		}
 	}
-	if err := json.Unmarshal([]byte(`{"seed":"#6750A4","edits":{"Card.Nope":1}}`), q); err == nil {
+	var d Design
+	if err := json.Unmarshal([]byte(`{"seed":"#6750A4","edits":{"Card.Nope":1}}`), &d); err == nil {
 		t.Fatal("unknown path accepted")
 	}
-	if err := json.Unmarshal([]byte(`{"seed":"#6750A4","edits":{"Card.Radius":"big"}}`), q); err == nil {
+	if err := json.Unmarshal([]byte(`{"seed":"#6750A4","edits":{"Card.Radius":"big"}}`), &d); err == nil {
 		t.Fatal("wrong value type accepted")
 	}
 	// The API checks types too, so generated code always compiles.
@@ -140,7 +163,7 @@ func TestJSONRoundTrip(t *testing.T) {
 			t.Errorf("Set(%s, %T) accepted", path, v)
 		}
 	}
-	if r.Count() != 0 {
+	if r.Count(false)+r.Count(true) != 0 {
 		t.Fatal("rejected values were stored")
 	}
 }
@@ -180,20 +203,30 @@ func TestGeneratedCodeMatchesPreview(t *testing.T) {
 			defer os.Remove("testdata")
 			defer os.RemoveAll(dir)
 			pkg := filepath.Join(dir, "theme")
-			os.MkdirAll(pkg, 0o755)
-			file := filepath.Join(pkg, "theme_gen.go")
-			if err := p.Save(file, GenOptions{Package: "theme", Func: "Brand"}); err != nil {
+			if err := p.Save(pkg, GenOptions{Package: "theme", Prefix: "Brand"}); err != nil {
 				t.Fatal(err)
 			}
-			// Reopening the file gives the same design.
-			q, err := Load(file)
-			if err != nil {
-				t.Fatal(err)
+			// Two files, each one struct literal: no field-by-field setters.
+			for _, dark := range []bool{false, true} {
+				src, err := os.ReadFile(filepath.Join(pkg, FileName(dark)))
+				if err != nil {
+					t.Fatal(err)
+				}
+				code := string(src)
+				fn := GenOptions{Prefix: "Brand"}.FuncName(dark)
+				if !strings.Contains(code, "func "+fn+"() m.Theme {\n\treturn m.Theme{\n") || setterLine.MatchString(code) {
+					t.Fatalf("%s isn't a single literal:\n%.600s", FileName(dark), code)
+				}
+			}
+			// Reopening the folder gives the same designs.
+			q, found, err := Load(pkg)
+			if err != nil || !found {
+				t.Fatal(err, found)
 			}
 			if !reflect.DeepEqual(p.Theme(false), q.Theme(false)) || !reflect.DeepEqual(p.Theme(true), q.Theme(true)) {
 				t.Fatal("Load(Save(p)) differs from p")
 			}
-			abs, _ := filepath.Abs(file)
+			abs, _ := filepath.Abs(pkg)
 			mainSrc := `package main
 
 import (
@@ -206,16 +239,18 @@ import (
 )
 
 func main() {
-	p, err := themeeditor.Load(` + "`" + abs + "`" + `)
+	p, _, err := themeeditor.Load(` + "`" + abs + "`" + `)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
-	for _, dark := range []bool{false, true} {
-		if !reflect.DeepEqual(theme.Brand(dark), p.Theme(dark)) {
-			fmt.Println("MISMATCH dark =", dark)
-			os.Exit(1)
-		}
+	if !reflect.DeepEqual(theme.BrandLightTheme(), p.Theme(false)) {
+		fmt.Println("MISMATCH light")
+		os.Exit(1)
+	}
+	if !reflect.DeepEqual(theme.BrandDarkTheme(), p.Theme(true)) {
+		fmt.Println("MISMATCH dark")
+		os.Exit(1)
 	}
 	fmt.Println("OK")
 }
@@ -226,7 +261,7 @@ func main() {
 			}
 			out, err := exec.Command("go", "run", "./"+filepath.ToSlash(filepath.Join(dir, "cmd"))).CombinedOutput()
 			if err != nil || strings.TrimSpace(string(out)) != "OK" {
-				src, _ := os.ReadFile(file)
+				src, _ := os.ReadFile(filepath.Join(pkg, LightFile))
 				t.Fatalf("generated code: %v\n%s\n--- code ---\n%s", err, out, src)
 			}
 		})

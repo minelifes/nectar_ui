@@ -17,8 +17,8 @@ import (
 // Run opens the editor window and blocks until it's closed.
 func Run(vm *VM) error {
 	title := "Nectar theme"
-	if out := vm.Options().Out; out != "" {
-		title += " — " + out
+	if dir := vm.Options().Dir; dir != "" {
+		title += " — " + dir
 	}
 	return ui.NewApp(ui.DefaultConfig().WithTitle(title).WithSize(1440, 900)).Run(Editor{VM: vm})
 }
@@ -71,22 +71,35 @@ func (t toolbar) Build(ctx w.BuildContext) w.Widget {
 	th := m.ThemeOf(ctx)
 	status := vm.Status.Get()
 	if vm.Dirty() {
-		status = fmt.Sprintf("%d edits · unsaved", vm.project.Count())
+		status = fmt.Sprintf("light %d · dark %d edits · unsaved", vm.EditsIn(false), vm.EditsIn(true))
 	}
 	dark := vm.Dark.Get()
-	modeIcon, modeTip := icons.DarkMode, "Preview the dark theme"
+	other := "light"
+	if !dark {
+		other = "dark"
+	}
+	mode := 0
 	if dark {
-		modeIcon, modeTip = icons.LightMode, "Preview the light theme"
+		mode = 1
 	}
 	actions := []w.Widget{
 		w.Padding{Padding: geom.InsetsHV(12, 0), Child: w.Text{Text: status, Style: m.Styled(th.Text.BodySmall, th.Scheme.OnSurfaceVariant)}},
-		m.Tooltip{Message: modeTip, Child: m.IconButton{Icon: modeIcon, OnPressed: func() { vm.Dark.Set(!dark) }}},
+		// Which design is edited and previewed: the two are independent.
+		w.SizedBox{Width: 200, Child: m.SegmentedButton{Segments: []m.Segment{{Value: 0, Label: "Light", Icon: icons.LightMode}, {Value: 1, Label: "Dark", Icon: icons.DarkMode}},
+			Selected: []any{mode}, OnChanged: func(v []any) {
+				if len(v) > 0 {
+					vm.Dark.Set(v[0] == 1)
+				}
+			}, Style: m.ButtonStyle{MinHeight: m.Dp(36)}}},
+		w.SizedBox{Width: 8},
+		m.Tooltip{Message: "Replace this design with a copy of the " + other + " one", Child: m.TextButton{Label: "Copy from " + other, Icon: icons.ContentCopy,
+			OnPressed: func() { vm.CopyFromOtherMode() }}},
 		m.TextButton{Label: "Reset", Icon: icons.RestartAlt, OnPressed: func() { confirmReset(ctx, vm) }},
 		w.SizedBox{Width: 8},
 		m.OutlinedButton{Label: "Code", Icon: icons.Code, OnPressed: func() { showCode(ctx, vm) }},
 		w.SizedBox{Width: 8},
 	}
-	if vm.Options().Out != "" {
+	if vm.Options().Dir != "" {
 		var save func()
 		if vm.Dirty() {
 			save = func() { _ = vm.Save() }
@@ -99,9 +112,13 @@ func (t toolbar) Build(ctx w.BuildContext) w.Widget {
 
 func confirmReset(ctx w.BuildContext, vm *VM) {
 	m.ShowDialog(ctx, func(ctx w.BuildContext) w.Widget {
-		return m.AlertDialog{Title: "Start over?", Content: "Every edit goes back to the Material 3 baseline.", Actions: []w.Widget{
+		mode := "light"
+		if vm.Dark.Get() {
+			mode = "dark"
+		}
+		return m.AlertDialog{Title: "Start the " + mode + " theme over?", Content: "Every edit of the " + mode + " theme goes back to the Material 3 baseline. The other theme is kept.", Actions: []w.Widget{
 			m.TextButton{Label: "Cancel", OnPressed: func() { m.Pop(ctx, nil) }},
-			m.TextButton{Label: "Reset", OnPressed: func() { vm.ResetAll(); m.Pop(ctx, nil) }},
+			m.TextButton{Label: "Reset", OnPressed: func() { vm.ResetMode(); m.Pop(ctx, nil) }},
 		}}
 	}, nil)
 }
@@ -163,8 +180,13 @@ func (e sectionEditor) Build(ctx w.BuildContext) w.Widget {
 	if vm.EditCount(sec) > 0 {
 		reset = func() { vm.ResetSection(sec) }
 	}
+	modeName := "Light theme"
+	if vm.Dark.Get() {
+		modeName = "Dark theme"
+	}
 	kids := []w.Widget{
-		w.Padding{Padding: geom.InsetsLTRB(16, 16, 8, 4), Child: w.Row{Cross: w.CrossCenter, Children: []w.Widget{
+		w.Padding{Padding: geom.InsetsLTRB(16, 12, 16, 0), Child: w.Text{Text: modeName, Style: m.Styled(th.Text.LabelMedium, th.Scheme.Primary)}},
+		w.Padding{Padding: geom.InsetsLTRB(16, 0, 8, 4), Child: w.Row{Cross: w.CrossCenter, Children: []w.Widget{
 			w.Expanded{Child: w.Text{Text: sec.Title, Style: m.Styled(th.Text.TitleLarge, th.Scheme.OnSurface)}},
 			m.TextButton{Label: "Reset section", OnPressed: reset},
 		}}},
@@ -174,14 +196,10 @@ func (e sectionEditor) Build(ctx w.BuildContext) w.Widget {
 	}
 	switch {
 	case sec.Name == "General":
-		note("The seed color generates the whole Material 3 palette, light and dark.")
+		note("The seed color generates this theme's Material 3 palette. The light and dark themes each have their own seed and edits.")
 		kids = append(kids, seedEditor{vm: vm})
 	case sec.Name == "Scheme":
-		mode := "light"
-		if vm.Dark.Get() {
-			mode = "dark"
-		}
-		note("Editing the " + mode + " scheme: switch the preview mode (top right) to edit the other one. Unedited roles follow the seed.")
+		note("Unedited roles follow the seed.")
 	case strings.HasPrefix(sec.Name, "Text."):
 		note("Text style " + sec.Title + ". Unset fields keep the Material 3 type scale.")
 	default:
@@ -230,17 +248,32 @@ var monoFont = func() *text.Font {
 }()
 
 func showCode(ctx w.BuildContext, vm *VM) {
-	m.ShowModalSideSheet(ctx, m.SideSheet{Title: "Generated code", Width: 720, Child: codeView{vm: vm}}, nil)
+	m.ShowModalSideSheet(ctx, m.SideSheet{Title: "Generated code", Width: 760, Child: codeView{vm: vm}}, nil)
 }
 
+// codeView shows one of the two generated files (the previewed mode's
+// first) with Copy and Save.
 type codeView struct{ vm *VM }
 
-func (c codeView) Build(ctx w.BuildContext) w.Widget {
-	vm := c.vm
+func (codeView) CreateState() w.State { return &codeViewState{} }
+
+type codeViewState struct {
+	w.StateBase
+	dark bool
+}
+
+func (s *codeViewState) InitState() { s.dark = w.WidgetOf[codeView](s).vm.Dark.Get() }
+
+func (s *codeViewState) Build(ctx w.BuildContext) w.Widget {
+	vm := w.WidgetOf[codeView](s).vm
 	w.Listen(ctx, vm.Rev)
 	w.Listen(ctx, vm.Status)
 	th := m.ThemeOf(ctx)
-	code, err := vm.Code()
+	file := 0
+	if s.dark {
+		file = 1
+	}
+	code, err := vm.Code(s.dark)
 	if err != nil {
 		code = "// " + err.Error()
 	}
@@ -250,6 +283,12 @@ func (c codeView) Build(ctx w.BuildContext) w.Widget {
 		shown = shown[:i+1] + Marker + "{…}\n"
 	}
 	buttons := []w.Widget{
+		w.SizedBox{Width: 300, Child: m.SegmentedButton{Segments: []m.Segment{{Value: 0, Label: LightFile}, {Value: 1, Label: DarkFile}},
+			Selected: []any{file}, OnChanged: func(v []any) {
+				if len(v) > 0 {
+					s.SetState(func() { s.dark = v[0] == 1 })
+				}
+			}, Style: m.ButtonStyle{MinHeight: m.Dp(36)}}},
 		m.FilledTonalButton{Label: "Copy", Icon: icons.ContentCopy, OnPressed: func() {
 			if cb := ctx.Owner().Clipboard; cb != nil {
 				if cb.WriteText(code) == nil {
@@ -258,8 +297,8 @@ func (c codeView) Build(ctx w.BuildContext) w.Widget {
 			}
 		}},
 	}
-	if out := vm.Options().Out; out != "" {
-		buttons = append(buttons, m.FilledButton{Label: "Save to " + out, Icon: icons.Save, OnPressed: func() { _ = vm.Save() }})
+	if vm.Options().Dir != "" {
+		buttons = append(buttons, m.FilledButton{Label: "Save both", Icon: icons.Save, OnPressed: func() { _ = vm.Save() }})
 	}
 	kids := []w.Widget{w.Row{ShrinkMain: true, Spacing: 8, Children: buttons}}
 	if s := vm.Status.Get(); s != "" {

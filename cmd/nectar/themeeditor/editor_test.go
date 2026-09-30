@@ -1,8 +1,6 @@
 package themeeditor
 
 import (
-	"os"
-	"path/filepath"
 	"reflect"
 	"runtime"
 	"slices"
@@ -10,14 +8,15 @@ import (
 	"testing"
 
 	"github.com/minelifes/nectar_ui/ui/geom"
+	m "github.com/minelifes/nectar_ui/ui/material"
 	"github.com/minelifes/nectar_ui/ui/render"
 	"github.com/minelifes/nectar_ui/ui/tester"
 	w "github.com/minelifes/nectar_ui/ui/widgets"
 )
 
-func openEditor(t *testing.T, out string) (*tester.Tester, *VM) {
+func openEditor(t *testing.T, dir string) (*tester.Tester, *VM) {
 	t.Helper()
-	vm := NewVM(nil, Options{Out: out})
+	vm := NewVM(nil, Options{Dir: dir})
 	return tester.New(Editor{VM: vm}, 1440, 900), vm
 }
 
@@ -145,45 +144,107 @@ func TestColorPickerDialog(t *testing.T) {
 	}
 }
 
-func TestDarkModeEditsTheDarkScheme(t *testing.T) {
+// The light and dark themes are separate designs: switching to dark shows
+// a fresh design to configure, and switching back shows each one's edits.
+func TestLightAndDarkAreSeparateDesigns(t *testing.T) {
 	tt, vm := openEditor(t, "")
-	vm.Dark.Set(true)
-	vm.Section.Set("Scheme")
-	tt.Pump()
-	if _, ok := tt.Find("Editing the dark scheme: switch the preview mode (top right) to edit the other one. Unedited roles follow the seed."); !ok {
-		t.Fatal("no dark-scheme note")
+	// Configure the light theme: seed, a card radius, a scheme role.
+	vm.SetSeed(geom.Hex(0x006A6A))
+	vm.Set("Scheme.Surface", geom.Hex(0xF4FBFA))
+	selectSection(t, tt, "Card")
+	r, _ := tt.Find("Radius")
+	tt.Drag(geom.Pt(r.X+30, r.Y+r.H+24), geom.Pt(r.X+340, r.Y+r.H+24))
+	lightRadius, ok := vm.Edit("Card.Radius")
+	if !ok {
+		t.Fatal("light radius not set")
 	}
-	vm.Set("Scheme.Primary", geom.Hex(0x00FF00))
-	p := vm.Project()
-	if _, ok := p.Dark["Scheme.Primary"]; !ok || len(p.Light) != 0 {
-		t.Fatalf("scheme edit landed in the wrong mode: light=%v dark=%v", p.Light, p.Dark)
+
+	// Dark: a fresh design, nothing carried over.
+	tapText(t, tt, "Dark")
+	if !vm.Dark.Get() {
+		t.Fatal("Dark button didn't switch")
 	}
-	if !vm.Theme(true).Scheme.Dark || vm.Theme(true).Scheme.Primary != geom.Hex(0x00FF00) {
-		t.Fatal("dark preview theme")
+	if _, ok := vm.Edit("Card.Radius"); ok || vm.Seed() != m.BaselineSeed || vm.EditsIn(true) != 0 {
+		t.Fatalf("dark design isn't fresh: seed %v, %d edits", vm.Seed(), vm.EditsIn(true))
+	}
+	if _, ok := tt.Find("Dark theme"); !ok {
+		t.Fatal("the editor doesn't say it edits the dark theme")
+	}
+	if !vm.Theme(true).Scheme.Dark || vm.Theme(true).Card.Radius != nil {
+		t.Fatal("dark preview should be the untouched dark baseline")
+	}
+	// Configure dark differently.
+	vm.SetSeed(geom.Hex(0x8B5000))
+	vm.Set("Card.Radius", float32(2))
+	vm.Set("Chip.Radius", float32(12))
+
+	// Back to light: exactly the light configuration.
+	tapText(t, tt, "Light")
+	if vm.Dark.Get() || vm.Seed() != geom.Hex(0x006A6A) {
+		t.Fatalf("light seed = %v", vm.Seed())
+	}
+	if v, _ := vm.Edit("Card.Radius"); v != lightRadius {
+		t.Fatalf("light radius = %v, want %v", v, lightRadius)
+	}
+	if _, ok := vm.Edit("Chip.Radius"); ok {
+		t.Fatal("a dark edit shows up in light")
+	}
+	if vm.Theme(false).Scheme.Surface != geom.Hex(0xF4FBFA) {
+		t.Fatal("light scheme edit lost")
+	}
+	// And dark again: the dark configuration.
+	tapText(t, tt, "Dark")
+	if v, _ := vm.Edit("Card.Radius"); v != float32(2) || vm.Seed() != geom.Hex(0x8B5000) {
+		t.Fatalf("dark radius %v seed %v", v, vm.Seed())
+	}
+	if vm.Theme(true).Scheme.Surface == geom.Hex(0xF4FBFA) {
+		t.Fatal("light scheme edit leaked into dark")
+	}
+
+	// Copy from light makes dark start from the light design.
+	tapText(t, tt, "Copy from light")
+	if v, _ := vm.Edit("Card.Radius"); v != lightRadius || vm.Seed() != geom.Hex(0x006A6A) {
+		t.Fatal("copy from light")
+	}
+	// Reset only resets the edited mode.
+	vm.ResetMode()
+	if vm.EditsIn(true) != 0 || vm.EditsIn(false) == 0 {
+		t.Fatalf("reset: light %d dark %d", vm.EditsIn(false), vm.EditsIn(true))
 	}
 }
 
 func TestSaveAndCodeView(t *testing.T) {
-	out := filepath.Join(t.TempDir(), "theme_gen.go")
-	tt, vm := openEditor(t, out)
+	dir := t.TempDir()
+	tt, vm := openEditor(t, dir)
 	vm.Set("Card.Radius", float32(6))
 	vm.SetSeed(geom.Hex(0x0B57D0))
+	vm.Dark.Set(true)
+	vm.Set("Card.Radius", float32(9))
+	vm.Dark.Set(false)
 	tt.Pump()
 
 	tapText(t, tt, "Code")
 	tt.Settle()
 	texts := strings.Join(tt.Texts(), "\n")
-	if !strings.Contains(texts, "func Generated(dark bool) m.Theme") || !strings.Contains(texts, "t.Card.Radius = m.Dp(6)") {
-		t.Fatalf("code view doesn't show the code:\n%s", texts)
+	for _, want := range []string{"func LightTheme() m.Theme {", "return m.Theme{", "Seed: geom.Hex(0x0B57D0),", "Radius: m.Dp(6),"} {
+		if !strings.Contains(texts, want) {
+			t.Fatalf("light code lacks %q:\n%s", want, texts)
+		}
 	}
 	tapText(t, tt, "Copy")
-	if !strings.Contains(tt.Clipboard(), "t.Card.Radius = m.Dp(6)") {
+	if !strings.Contains(tt.Clipboard(), "func LightTheme() m.Theme {") {
 		t.Fatal("Copy didn't put the code on the clipboard")
+	}
+	// The other file.
+	tapText(t, tt, DarkFile)
+	texts = strings.Join(tt.Texts(), "\n")
+	if !strings.Contains(texts, "func DarkTheme() m.Theme {") || !strings.Contains(texts, "Radius: m.Dp(9),") {
+		t.Fatalf("dark code:\n%s", texts)
 	}
 	tt.Key(w.KeyEscape)
 	tt.Settle()
 
-	// Ctrl+S (the platform shortcut) saves.
+	// Ctrl+S (the platform shortcut) saves both files.
 	mod := w.ModControl
 	if runtime.GOOS == "darwin" {
 		mod = w.ModSuper
@@ -192,47 +253,51 @@ func TestSaveAndCodeView(t *testing.T) {
 	if vm.Dirty() {
 		t.Fatalf("not saved: %q", vm.Status.Get())
 	}
-	p, err := Load(out)
-	if err != nil {
-		t.Fatal(err)
+	p, found, err := Load(dir)
+	if err != nil || !found {
+		t.Fatal(err, found)
 	}
-	if !reflect.DeepEqual(p.Theme(false), vm.Theme(false)) {
-		t.Fatal("saved design differs")
-	}
-	src, _ := os.ReadFile(out)
-	if !strings.Contains(string(src), "geom.Hex(0x0B57D0)") {
-		t.Fatal("seed not in the code")
+	for _, dark := range []bool{false, true} {
+		if !reflect.DeepEqual(p.Theme(dark), vm.Theme(dark)) {
+			t.Fatalf("saved design differs (dark=%v)", dark)
+		}
 	}
 
 	// The Save button saves further edits.
 	vm.Set("Card.Radius", float32(10))
 	tt.Pump()
 	tapText(t, tt, "Save")
-	if p, _ := Load(out); *p.Theme(false).Card.Radius != 10 {
+	if p, _, _ := Load(dir); *p.Theme(false).Card.Radius != 10 || *p.Theme(true).Card.Radius != 9 {
 		t.Fatal("Save button didn't save")
 	}
 }
 
 func TestReopenSavedDesign(t *testing.T) {
-	out := filepath.Join(t.TempDir(), "brand.go")
+	dir := t.TempDir()
 	p := NewProject()
-	p.Set("Chip.Radius", false, float32(4))
-	if err := p.Save(out, GenOptions{Package: "brand"}); err != nil {
+	must(t, p.Set("Chip.Radius", false, float32(4)))
+	must(t, p.Set("Chip.Radius", true, float32(7)))
+	if err := p.Save(dir, GenOptions{Package: "brand"}); err != nil {
 		t.Fatal(err)
 	}
-	q, err := Load(out)
+	q, _, err := Load(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	vm := NewVM(q, Options{Out: out})
+	vm := NewVM(q, Options{Dir: dir})
 	tt := tester.New(Editor{VM: vm}, 1440, 900)
 	vm.Section.Set("Chip")
 	tt.Pump()
 	if v, ok := vm.Edit("Chip.Radius"); !ok || v != float32(4) {
-		t.Fatalf("reopened edit = %v %v", v, ok)
+		t.Fatalf("reopened light edit = %v %v", v, ok)
 	}
 	if !slices.Contains(tt.Texts(), "4") {
 		t.Fatal("the slider value isn't shown")
+	}
+	vm.Dark.Set(true)
+	tt.Pump()
+	if v, _ := vm.Edit("Chip.Radius"); v != float32(7) || !slices.Contains(tt.Texts(), "7") {
+		t.Fatalf("reopened dark edit = %v", v)
 	}
 	if vm.Dirty() {
 		t.Fatal("a freshly opened design isn't unsaved")

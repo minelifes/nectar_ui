@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"flag"
 	"fmt"
 	"go/parser"
@@ -16,91 +15,89 @@ import (
 
 // ThemeOptions configure `nectar theme`.
 type ThemeOptions struct {
-	Out     string // generated file; default: see defaultThemeOut
-	Package string // default: the package of Out's folder, else its name
-	Func    string // default "Generated"
-	New     bool   // start a new design even if Out exists
+	Dir     string // folder of theme_light.go / theme_dark.go; default: see defaultThemeDir
+	Package string // default: the package already in Dir, else its name
+	Prefix  string // func names: <Prefix>LightTheme, <Prefix>DarkTheme
+	New     bool   // start new designs even if the files exist
 }
 
 func cmdTheme(args []string) error {
 	var o ThemeOptions
 	fs := flag.NewFlagSet("theme", flag.ContinueOnError)
-	fs.StringVar(&o.Out, "o", "", "Go file to write (default internal/theme/theme_gen.go when that folder exists, else theme_gen.go)")
-	fs.StringVar(&o.Package, "pkg", "", "package of the generated file (default: the package already in that folder, else the folder name)")
-	fs.StringVar(&o.Func, "func", "Generated", "name of the generated func(dark bool) material.Theme")
-	fs.BoolVar(&o.New, "new", false, "start a new design even if the output file exists (it's overwritten on save)")
+	fs.StringVar(&o.Package, "pkg", "", "package of the generated files (default: the package already in the folder, else the folder name)")
+	fs.StringVar(&o.Prefix, "prefix", "", "prefix of the generated funcs: <prefix>LightTheme and <prefix>DarkTheme")
+	fs.BoolVar(&o.New, "new", false, "start new designs even if the files exist (they're overwritten on save)")
 	fs.Usage = func() {
-		fmt.Fprint(os.Stderr, `Usage: nectar theme [flags] [file.go]
+		fmt.Fprintf(os.Stderr, `Usage: nectar theme [flags] [folder]
 
-Opens the theme editor: pick a seed color, adjust the color scheme, the
-type scale and any Material component, with a live preview. Save writes Go
-code (a func returning material.Theme for light or dark mode); running
-nectar theme on that file again reopens the design.
+Opens the theme editor: design a light and a dark Material theme, each
+with its own seed color, color scheme, type scale and component styles,
+with a live preview. Save writes %s and %s into the folder
+(default internal/theme when it exists, else the current folder), each a
+func returning one material.Theme literal; running nectar theme on the
+folder again reopens both designs.
 
-`)
+`, themeeditor.LightFile, themeeditor.DarkFile)
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() > 0 {
-		o.Out = fs.Arg(0)
+		o.Dir = fs.Arg(0)
 	}
 	vm, err := prepareTheme(&o)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Editing %s (package %s, func %s). Save with the Save button or Ctrl/⌘+S.\n", o.Out, o.Package, o.Func)
+	gen := vm.Options().Gen
+	fmt.Printf("Editing %s and %s in %s (package %s). Save with the Save button or Ctrl/⌘+S.\n",
+		themeeditor.LightFile, themeeditor.DarkFile, o.Dir, o.Package)
 	if err := themeeditor.Run(vm); err != nil {
 		return err
 	}
 	if strings.HasPrefix(vm.Status.Get(), "Saved ") && !vm.Dirty() {
-		fmt.Printf("\nSaved %s. Use it in your app:\n\n\tmaterial.App{Theme: %s.%s(false), DarkTheme: widgets.Ptr(%s.%s(true)), Dark: dark}\n",
-			o.Out, o.Package, o.Func, o.Package, o.Func)
+		fmt.Printf("\nSaved. Use the themes in your app:\n\n\tmaterial.App{Theme: %s.%s(), DarkTheme: widgets.Ptr(%s.%s()), Dark: dark}\n",
+			o.Package, gen.FuncName(false), o.Package, gen.FuncName(true))
 	} else if vm.Dirty() {
 		fmt.Println("\nClosed with unsaved changes.")
 	}
 	return nil
 }
 
-// prepareTheme fills in defaults and opens (or starts) the design.
+// prepareTheme fills in defaults and opens (or starts) the designs.
 func prepareTheme(o *ThemeOptions) (*themeeditor.VM, error) {
-	if o.Out == "" {
-		o.Out = defaultThemeOut()
+	if o.Dir == "" {
+		o.Dir = defaultThemeDir()
 	}
-	if !strings.HasSuffix(o.Out, ".go") {
-		return nil, fmt.Errorf("theme: %s: the output must be a .go file", o.Out)
+	if st, err := os.Stat(o.Dir); err == nil && !st.IsDir() {
+		return nil, fmt.Errorf("theme: %s is not a folder (the editor writes %s and %s into one)", o.Dir, themeeditor.LightFile, themeeditor.DarkFile)
 	}
 	if o.Package == "" {
-		o.Package = packageFor(filepath.Dir(o.Out))
+		o.Package = packageFor(o.Dir)
 	}
-	if o.Func == "" {
-		o.Func = "Generated"
+	if !token.IsIdentifier(o.Package) || token.IsKeyword(o.Package) || (o.Prefix != "" && !token.IsIdentifier(o.Prefix+"X")) {
+		return nil, fmt.Errorf("theme: package %q / prefix %q: need Go identifiers", o.Package, o.Prefix)
 	}
-	if !token.IsIdentifier(o.Package) || !token.IsIdentifier(o.Func) || !unicode.IsUpper(rune(o.Func[0])) {
-		return nil, fmt.Errorf("theme: package %q / func %q: need Go identifiers, the func exported", o.Package, o.Func)
-	}
-	var project *themeeditor.Project
-	if _, err := os.Stat(o.Out); err == nil && !o.New {
-		p, err := themeeditor.Load(o.Out)
+	project := themeeditor.NewProject()
+	if !o.New {
+		p, _, err := themeeditor.Load(o.Dir)
 		if err != nil {
 			return nil, fmt.Errorf("theme: %w (use -new to replace it)", err)
 		}
 		project = p
-	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return nil, err
 	}
-	return themeeditor.NewVM(project, themeeditor.Options{Out: o.Out,
-		Gen: themeeditor.GenOptions{Package: o.Package, Func: o.Func}}), nil
+	return themeeditor.NewVM(project, themeeditor.Options{Dir: o.Dir,
+		Gen: themeeditor.GenOptions{Package: o.Package, Prefix: o.Prefix}}), nil
 }
 
-// defaultThemeOut is internal/theme/theme_gen.go in apps made by `nectar
-// new -template material`, else theme_gen.go here.
-func defaultThemeOut() string {
+// defaultThemeDir is internal/theme in apps made by `nectar new -template
+// material`, else the current folder.
+func defaultThemeDir() string {
 	if st, err := os.Stat(filepath.Join("internal", "theme")); err == nil && st.IsDir() {
-		return filepath.Join("internal", "theme", "theme_gen.go")
+		return filepath.Join("internal", "theme")
 	}
-	return "theme_gen.go"
+	return "."
 }
 
 // packageFor returns the package the Go files in dir already use, else a

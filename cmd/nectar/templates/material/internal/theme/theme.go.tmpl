@@ -58,9 +58,9 @@ func build(seed geom.Color, dark bool) m.Theme {
 	t.Text.HeadlineMedium.Size = 30
 	t.Text.HeadlineMedium.LetterSpacing = -0.25
 
-	// To design the theme visually, run `nectar theme` in the app folder: it
-	// writes theme_gen.go next to this file; then start from Generated(dark)
-	// instead of m.NewTheme(seed, dark) above.
+	// To design the themes visually, run `nectar theme` in the app folder:
+	// it writes theme_light.go (LightTheme) and theme_dark.go (DarkTheme)
+	// next to this file; then return those from Light and Dark.
 	//
 	// Components: every Material widget has a theme here (t.FilledButton,
 	// t.Card, t.Input, t.NavigationBar, …); set only what you want to

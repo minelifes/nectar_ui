@@ -2,94 +2,94 @@ package themeeditor
 
 import (
 	"bufio"
-	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"go/format"
 	"math"
 	"os"
+	"path/filepath"
 	"reflect"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/minelifes/nectar_ui/ui/geom"
 	m "github.com/minelifes/nectar_ui/ui/material"
+	"github.com/minelifes/nectar_ui/ui/widgets/text"
 )
 
+// Generated files, one per mode.
+const (
+	LightFile = "theme_light.go"
+	DarkFile  = "theme_dark.go"
+)
+
+// FileName returns the generated file of a mode.
+func FileName(dark bool) string {
+	if dark {
+		return DarkFile
+	}
+	return LightFile
+}
+
 // ---------------------------------------------------------------------------
-// JSON: the design is saved inside the generated file (see Marker), so
-// the file can be reopened in the editor.
+// JSON: each generated file stores its mode's design in its last line
+// (see Marker), so the files reopen in the editor.
 
 // Marker starts the comment line holding the design in generated files.
 const Marker = "//nectar:theme "
 
-type projectJSON struct {
+type designJSON struct {
 	Seed  string         `json:"seed"`
 	Edits map[string]any `json:"edits,omitempty"`
-	Light map[string]any `json:"light,omitempty"`
-	Dark  map[string]any `json:"dark,omitempty"`
 }
 
 // MarshalJSON encodes the design with plain JSON values: colors as
 // "#RRGGBBAA", insets as [left, top, right, bottom], durations in
 // milliseconds, fonts by name.
-func (p *Project) MarshalJSON() ([]byte, error) {
-	enc := func(src map[string]any) map[string]any {
-		out := map[string]any{}
-		for k, v := range src {
-			switch x := v.(type) {
-			case geom.Color:
-				out[k] = ColorHex(x)
-			case geom.EdgeInsets:
-				out[k] = []float32{x.Left, x.Top, x.Right, x.Bottom}
-			case time.Duration:
-				out[k] = x.Milliseconds()
-			default:
-				out[k] = v
-			}
+func (d Design) MarshalJSON() ([]byte, error) {
+	out := map[string]any{}
+	for k, v := range d.Edits {
+		switch x := v.(type) {
+		case geom.Color:
+			out[k] = ColorHex(x)
+		case geom.EdgeInsets:
+			out[k] = []float32{x.Left, x.Top, x.Right, x.Bottom}
+		case time.Duration:
+			out[k] = x.Milliseconds()
+		default:
+			out[k] = v
 		}
-		return out
 	}
-	return json.Marshal(projectJSON{Seed: ColorHex(p.Seed), Edits: enc(p.Edits), Light: enc(p.Light), Dark: enc(p.Dark)})
+	return json.Marshal(designJSON{Seed: ColorHex(d.Seed), Edits: out})
 }
 
 // UnmarshalJSON decodes a design, checking every path and value against
 // material.Theme.
-func (p *Project) UnmarshalJSON(data []byte) error {
-	var pj projectJSON
-	if err := json.Unmarshal(data, &pj); err != nil {
+func (d *Design) UnmarshalJSON(data []byte) error {
+	var dj designJSON
+	if err := json.Unmarshal(data, &dj); err != nil {
 		return err
 	}
-	seed, err := ParseColor(pj.Seed)
+	seed, err := ParseColor(dj.Seed)
 	if err != nil {
 		return fmt.Errorf("themeeditor: seed: %w", err)
 	}
-	*p = *NewProject()
-	p.Seed = seed
-	load := func(src map[string]any, dark bool, scheme bool) error {
-		for path, raw := range src {
-			if isScheme(path) != scheme {
-				return fmt.Errorf("themeeditor: %s is in the wrong section", path)
-			}
-			v, err := decodeValue(path, raw)
-			if err != nil {
-				return err
-			}
-			if err := p.Set(path, dark, v); err != nil {
-				return err
-			}
+	nd := NewDesign()
+	nd.Seed = seed
+	p := &Project{Light: nd}
+	for path, raw := range dj.Edits {
+		v, err := decodeValue(path, raw)
+		if err != nil {
+			return err
 		}
-		return nil
+		if err := p.Set(path, false, v); err != nil {
+			return err
+		}
 	}
-	if err := load(pj.Edits, false, false); err != nil {
-		return err
-	}
-	if err := load(pj.Light, false, true); err != nil {
-		return err
-	}
-	return load(pj.Dark, true, true)
+	*d = p.Light
+	return nil
 }
 
 func decodeValue(path string, raw any) (any, error) {
@@ -173,214 +173,272 @@ func ParseColor(s string) (geom.Color, error) {
 // ---------------------------------------------------------------------------
 // Files
 
-// Load reads the design saved in a generated file (the Marker line).
-func Load(path string) (*Project, error) {
+// Load reads the designs saved in dir (theme_light.go, theme_dark.go). A
+// missing file gives a fresh design for that mode; found reports whether
+// either existed. A file without the design line (not written by nectar
+// theme) is an error, so it's never overwritten.
+func Load(dir string) (p *Project, found bool, err error) {
+	p = NewProject()
+	for _, dark := range []bool{false, true} {
+		path := filepath.Join(dir, FileName(dark))
+		d, err := loadDesign(path)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, found, err
+		}
+		*p.Mode(dark) = d
+		found = true
+	}
+	return p, found, nil
+}
+
+func loadDesign(path string) (Design, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return Design{}, err
 	}
 	defer f.Close()
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 64<<10), 16<<20)
 	for sc.Scan() {
 		if line, ok := strings.CutPrefix(sc.Text(), Marker); ok {
-			p := NewProject()
-			if err := json.Unmarshal([]byte(line), p); err != nil {
-				return nil, fmt.Errorf("%s: %w", path, err)
+			var d Design
+			if err := json.Unmarshal([]byte(line), &d); err != nil {
+				return Design{}, fmt.Errorf("%s: %w", path, err)
 			}
-			return p, nil
+			return d, nil
 		}
 	}
 	if err := sc.Err(); err != nil {
-		return nil, err
+		return Design{}, err
 	}
-	return nil, fmt.Errorf("%s: no %q line: not written by nectar theme", path, strings.TrimSpace(Marker))
+	return Design{}, fmt.Errorf("%s: no %q line: not written by nectar theme", path, strings.TrimSpace(Marker))
 }
 
-// Save writes the generated code (with the design embedded) to path.
-func (p *Project) Save(path string, o GenOptions) error {
-	src, err := p.GoCode(o)
-	if err != nil {
+// Save writes theme_light.go and theme_dark.go into dir (created if
+// needed).
+func (p *Project) Save(dir string, o GenOptions) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(path, src, 0o644)
+	for _, dark := range []bool{false, true} {
+		src, err := p.GoCode(dark, o)
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(dir, FileName(dark)), src, 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------
 // Go code
 
-// GenOptions configure the generated file.
+// GenOptions configure the generated files.
 type GenOptions struct {
 	Package string // default "theme"
-	Func    string // default "Generated"
+	Prefix  string // func names: <Prefix>LightTheme, <Prefix>DarkTheme
 	Engine  string // engine module path; default github.com/minelifes/nectar_ui
 }
 
 // EngineModule is the default import path of the engine.
 const EngineModule = "github.com/minelifes/nectar_ui"
 
-// GoCode returns a gofmt-ed Go file with a func returning the designed
-// theme for light or dark mode, ending with the design as a Marker line.
-func (p *Project) GoCode(o GenOptions) ([]byte, error) {
+// FuncName returns the generated func of a mode.
+func (o GenOptions) FuncName(dark bool) string {
+	if dark {
+		return o.Prefix + "DarkTheme"
+	}
+	return o.Prefix + "LightTheme"
+}
+
+func (o GenOptions) withDefaults() GenOptions {
 	if o.Package == "" {
 		o.Package = "theme"
-	}
-	if o.Func == "" {
-		o.Func = "Generated"
 	}
 	if o.Engine == "" {
 		o.Engine = EngineModule
 	}
-	imports := map[string]bool{}
-	var body strings.Builder
-	line := func(path string, v any) error {
-		expr, err := goExpr(path, v, imports)
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(&body, "\tt.%s = %s\n", goPath(path), expr)
-		return nil
-	}
-	imports["geom"] = true
-	fmt.Fprintf(&body, "\tt := m.NewTheme(%s, dark)\n", colorExpr(p.Seed))
-	if len(p.Light)+len(p.Dark) > 0 {
-		body.WriteString("\tif dark {\n")
-		for _, path := range sortedKeys(p.Dark) {
-			body.WriteString("\t")
-			if err := line(path, p.Dark[path]); err != nil {
-				return nil, err
-			}
-		}
-		body.WriteString("\t} else {\n")
-		for _, path := range sortedKeys(p.Light) {
-			body.WriteString("\t")
-			if err := line(path, p.Light[path]); err != nil {
-				return nil, err
-			}
-		}
-		body.WriteString("\t}\n")
-	}
-	for _, path := range sortedKeys(p.Edits) {
-		if err := line(path, p.Edits[path]); err != nil {
-			return nil, err
-		}
-	}
-	body.WriteString("\treturn t\n")
+	return o
+}
 
-	design, err := json.Marshal(p)
+// GoCode returns a mode's gofmt-ed Go file: a func returning the theme as
+// one material.Theme struct literal (the full color scheme and type scale,
+// and the component theme fields that were set), ending with the design
+// as a Marker line.
+func (p *Project) GoCode(dark bool, o GenOptions) ([]byte, error) {
+	o = o.withDefaults()
+	g := &litWriter{imports: map[string]bool{}}
+	lit, err := g.value(reflect.ValueOf(p.Theme(dark)), 1)
 	if err != nil {
 		return nil, err
 	}
-	var src bytes.Buffer
-	fmt.Fprintf(&src, `// Code generated by "nectar theme". Reopen this file in the editor to change
-// the design (it is stored in the last line of this file):
+	design, err := json.Marshal(*p.Mode(dark))
+	if err != nil {
+		return nil, err
+	}
+	mode, other := "light", "dark"
+	if dark {
+		mode, other = "dark", "light"
+	}
+	var src strings.Builder
+	fmt.Fprintf(&src, `// Code generated by "nectar theme": the %s theme (the %s one is in %s).
+// Reopen the design in the editor with:
 //
-//	nectar theme -o <this file>
+//	nectar theme <this folder>
 //
-// Use it in the app:
+// Use both in the app:
 //
-//	material.App{Theme: %s.%s(false), DarkTheme: widgets.Ptr(%s.%s(true)), Dark: dark}
+//	material.App{Theme: %s.%s(), DarkTheme: widgets.Ptr(%s.%s()), Dark: dark}
 
 package %s
 
 import (
-`, o.Package, o.Func, o.Package, o.Func, o.Package)
-	if imports["time"] {
+`, mode, other, FileName(!dark), o.Package, o.FuncName(false), o.Package, o.FuncName(true), o.Package)
+	if g.imports["time"] {
 		src.WriteString("\t\"time\"\n\n")
 	}
 	fmt.Fprintf(&src, "\t%q\n", o.Engine+"/ui/geom")
 	fmt.Fprintf(&src, "\tm %q\n", o.Engine+"/ui/material")
-	if imports["w"] {
+	if g.imports["w"] {
 		fmt.Fprintf(&src, "\tw %q\n", o.Engine+"/ui/widgets")
 	}
-	if imports["text"] {
+	if g.imports["text"] {
 		fmt.Fprintf(&src, "\t%q\n", o.Engine+"/ui/widgets/text")
 	}
-	fmt.Fprintf(&src, ")\n\n// %s returns the light (dark = false) or dark theme designed in \"nectar theme\".\nfunc %s(dark bool) m.Theme {\n%s}\n\n%s%s\n",
-		o.Func, o.Func, body.String(), Marker, design)
-	out, err := format.Source(src.Bytes())
+	fmt.Fprintf(&src, ")\n\n// %s returns the %s theme designed in \"nectar theme\".\nfunc %s() m.Theme {\n\treturn %s\n}\n\n%s%s\n",
+		o.FuncName(dark), mode, o.FuncName(dark), lit, Marker, design)
+	out, err := format.Source([]byte(src.String()))
 	if err != nil {
-		return nil, fmt.Errorf("themeeditor: generated code doesn't parse: %w\n%s", err, src.Bytes())
+		return nil, fmt.Errorf("themeeditor: generated code doesn't parse: %w\n%s", err, src.String())
 	}
 	return out, nil
 }
 
-func sortedKeys(mp map[string]any) []string {
-	keys := make([]string, 0, len(mp))
-	for k := range mp {
-		keys = append(keys, k)
+// litWriter writes Go expressions for theme values.
+type litWriter struct{ imports map[string]bool }
+
+var materialPkg = themeT.PkgPath()
+
+// value returns the Go expression for v; depth is the indentation of the
+// line it starts on.
+func (g *litWriter) value(v reflect.Value, depth int) (string, error) {
+	t := v.Type()
+	switch {
+	case t == colorT:
+		g.imports["geom"] = true
+		return colorExpr(v.Interface().(geom.Color)), nil
+	case t == durationT:
+		g.imports["time"] = true
+		return fmt.Sprintf("%d * time.Millisecond", v.Interface().(time.Duration).Milliseconds()), nil
+	case t == fontPtrT:
+		return g.font(v.Interface().(*text.Font))
+	case t.Kind() == reflect.Float32:
+		return num(float32(v.Float())), nil
+	case t.Kind() == reflect.Bool:
+		return strconv.FormatBool(v.Bool()), nil
+	case t.Kind() == reflect.Pointer:
+		return g.pointer(v)
+	case t.Kind() == reflect.Array:
+		items := make([]string, v.Len())
+		for i := range items {
+			s, err := g.value(v.Index(i), depth)
+			if err != nil {
+				return "", err
+			}
+			items[i] = s
+		}
+		elem, err := g.typeName(t.Elem())
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("[%d]%s{%s}", v.Len(), elem, strings.Join(items, ", ")), nil
+	case t.Kind() == reflect.Struct:
+		return g.structLit(v, depth)
 	}
-	slices.SortFunc(keys, comparePaths)
-	return keys
+	return "", fmt.Errorf("themeeditor: can't write %s", t)
 }
 
-// goPath turns "Carousel.ItemColors.0" into "Carousel.ItemColors[0]".
-func goPath(path string) string {
-	parts := strings.Split(path, ".")
-	var b strings.Builder
-	for i, part := range parts {
-		if _, err := strconv.Atoi(part); err == nil {
-			fmt.Fprintf(&b, "[%s]", part)
-			continue
-		}
-		if i > 0 {
-			b.WriteByte('.')
-		}
-		b.WriteString(part)
-	}
-	return b.String()
-}
-
-// goExpr is the Go expression assigning v to the field at path.
-func goExpr(path string, v any, imports map[string]bool) (string, error) {
-	if err := CheckValue(path, v); err != nil {
-		return "", err
-	}
-	f, err := lookup(reflect.New(themeT).Elem(), path)
+// structLit writes T{ Field: value, ... } with the non-zero fields, one per
+// line.
+func (g *litWriter) structLit(v reflect.Value, depth int) (string, error) {
+	name, err := g.typeName(v.Type())
 	if err != nil {
 		return "", err
 	}
-	ptr := f.Kind() == reflect.Pointer
-	switch x := v.(type) {
-	case geom.Color:
-		imports["geom"] = true
-		return colorExpr(x), nil
-	case float32:
-		if ptr {
-			return "m.Dp(" + num(x) + ")", nil
+	var b strings.Builder
+	b.WriteString(name + "{\n")
+	in := strings.Repeat("\t", depth+1)
+	for i := range v.NumField() {
+		f, sf := v.Field(i), v.Type().Field(i)
+		if !sf.IsExported() || f.IsZero() {
+			continue
 		}
-		return num(x), nil
-	case int:
-		imports["w"] = true
-		return fmt.Sprintf("w.Ptr(%d)", x), nil
-	case bool:
-		imports["w"] = true
-		return fmt.Sprintf("w.Ptr(%t)", x), nil
-	case geom.EdgeInsets:
-		imports["w"], imports["geom"] = true, true
-		if x.Left == x.Top && x.Top == x.Right && x.Right == x.Bottom {
+		s, err := g.value(f, depth+1)
+		if err != nil {
+			return "", fmt.Errorf("%s.%s: %w", name, sf.Name, err)
+		}
+		fmt.Fprintf(&b, "%s%s: %s,\n", in, sf.Name, s)
+	}
+	b.WriteString(strings.Repeat("\t", depth) + "}")
+	return b.String(), nil
+}
+
+func (g *litWriter) pointer(v reflect.Value) (string, error) {
+	e := v.Elem()
+	switch {
+	case e.Kind() == reflect.Float32:
+		return "m.Dp(" + num(float32(e.Float())) + ")", nil
+	case e.Kind() == reflect.Int:
+		g.imports["w"] = true
+		return fmt.Sprintf("w.Ptr(%d)", e.Int()), nil
+	case e.Kind() == reflect.Bool:
+		g.imports["w"] = true
+		return fmt.Sprintf("w.Ptr(%t)", e.Bool()), nil
+	case e.Type() == insetsT:
+		g.imports["w"], g.imports["geom"] = true, true
+		x := e.Interface().(geom.EdgeInsets)
+		switch {
+		case x.Left == x.Top && x.Top == x.Right && x.Right == x.Bottom:
 			return "w.Ptr(geom.Insets(" + num(x.Left) + "))", nil
-		}
-		if x.Left == x.Right && x.Top == x.Bottom {
+		case x.Left == x.Right && x.Top == x.Bottom:
 			return "w.Ptr(geom.InsetsHV(" + num(x.Left) + ", " + num(x.Top) + "))", nil
 		}
 		return fmt.Sprintf("w.Ptr(geom.InsetsLTRB(%s, %s, %s, %s))", num(x.Left), num(x.Top), num(x.Right), num(x.Bottom)), nil
-	case time.Duration:
-		imports["time"] = true
-		return fmt.Sprintf("%d * time.Millisecond", x.Milliseconds()), nil
-	case string:
-		switch x {
-		case FontRegular:
-			imports["text"] = true
-			return "text.DefaultFont()", nil
-		case FontMedium:
-			return "m.MediumFont()", nil
-		case FontBold:
-			imports["text"] = true
-			return "text.DefaultBoldFont()", nil
-		}
 	}
-	return "", fmt.Errorf("themeeditor: can't write %T %v for %s", v, v, path)
+	return "", fmt.Errorf("themeeditor: can't write %s", v.Type())
+}
+
+func (g *litWriter) font(f *text.Font) (string, error) {
+	switch FontName(f) {
+	case FontRegular:
+		g.imports["text"] = true
+		return "text.DefaultFont()", nil
+	case FontMedium:
+		return "m.MediumFont()", nil
+	case FontBold:
+		g.imports["text"] = true
+		return "text.DefaultBoldFont()", nil
+	}
+	return "", fmt.Errorf("themeeditor: a font Nectar doesn't ship can't be written")
+}
+
+func (g *litWriter) typeName(t reflect.Type) (string, error) {
+	switch t.PkgPath() {
+	case materialPkg:
+		return "m." + t.Name(), nil
+	case styleT.PkgPath():
+		g.imports["text"] = true
+		return "text." + t.Name(), nil
+	case colorT.PkgPath():
+		g.imports["geom"] = true
+		return "geom." + t.Name(), nil
+	}
+	return "", fmt.Errorf("themeeditor: can't write type %s", t)
 }
 
 func num(f float32) string { return strconv.FormatFloat(float64(f), 'g', -1, 32) }

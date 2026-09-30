@@ -10,8 +10,7 @@ import (
 )
 
 func TestThemeDefaultsInMaterialApp(t *testing.T) {
-	dir := t.TempDir()
-	t.Chdir(dir)
+	t.Chdir(t.TempDir())
 	os.MkdirAll(filepath.Join("internal", "theme"), 0o755)
 	os.WriteFile(filepath.Join("internal", "theme", "theme.go"), []byte("package apptheme\n"), 0o644)
 	o := ThemeOptions{}
@@ -19,11 +18,14 @@ func TestThemeDefaultsInMaterialApp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if o.Out != filepath.Join("internal", "theme", "theme_gen.go") || o.Package != "apptheme" || o.Func != "Generated" {
+	if o.Dir != filepath.Join("internal", "theme") || o.Package != "apptheme" {
 		t.Fatalf("defaults: %+v", o)
 	}
-	if vm.Dirty() || vm.Project().Count() != 0 {
-		t.Fatal("new design should be empty and saved-state clean")
+	if g := vm.Options().Gen; g.FuncName(false) != "LightTheme" || g.FuncName(true) != "DarkTheme" {
+		t.Fatalf("func names: %s %s", g.FuncName(false), g.FuncName(true))
+	}
+	if vm.Dirty() || vm.EditsIn(false)+vm.EditsIn(true) != 0 {
+		t.Fatal("new designs should be empty and saved-state clean")
 	}
 }
 
@@ -31,11 +33,12 @@ func TestThemeDefaultsElsewhere(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "my-brand")
 	os.MkdirAll(dir, 0o755)
 	t.Chdir(dir)
-	o := ThemeOptions{}
-	if _, err := prepareTheme(&o); err != nil {
+	o := ThemeOptions{Prefix: "Brand"}
+	vm, err := prepareTheme(&o)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if o.Out != "theme_gen.go" || o.Package != "mybrand" {
+	if o.Dir != "." || o.Package != "mybrand" || vm.Options().Gen.FuncName(true) != "BrandDarkTheme" {
 		t.Fatalf("defaults: %+v", o)
 	}
 }
@@ -44,31 +47,38 @@ func TestThemeReopensAndProtectsFiles(t *testing.T) {
 	t.Chdir(t.TempDir())
 	p := themeeditor.NewProject()
 	p.Set("Card.Radius", false, float32(5))
-	if err := p.Save("brand.go", themeeditor.GenOptions{Package: "brand"}); err != nil {
+	p.Set("Card.Radius", true, float32(8))
+	if err := p.Save("brand", themeeditor.GenOptions{Package: "brand"}); err != nil {
 		t.Fatal(err)
 	}
-	o := ThemeOptions{Out: "brand.go"}
+	o := ThemeOptions{Dir: "brand"}
 	vm, err := prepareTheme(&o)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if v, ok := vm.Edit("Card.Radius"); !ok || v != float32(5) {
-		t.Fatalf("existing design not reopened: %v %v", v, ok)
+		t.Fatalf("light design not reopened: %v %v", v, ok)
+	}
+	vm.Dark.Set(true)
+	if v, ok := vm.Edit("Card.Radius"); !ok || v != float32(8) {
+		t.Fatalf("dark design not reopened: %v %v", v, ok)
 	}
 	if o.Package != "brand" {
-		t.Fatalf("package = %q, want the file's own", o.Package)
+		t.Fatalf("package = %q, want the files' own", o.Package)
 	}
 	// -new starts over.
-	o = ThemeOptions{Out: "brand.go", New: true}
-	if vm, err = prepareTheme(&o); err != nil || vm.Project().Count() != 0 {
-		t.Fatalf("-new: %v %v", err, vm.Project().Count())
+	o = ThemeOptions{Dir: "brand", New: true}
+	if vm, err = prepareTheme(&o); err != nil || vm.EditsIn(false)+vm.EditsIn(true) != 0 {
+		t.Fatalf("-new: %v", err)
 	}
-	// A hand-written file is never loaded (and so never overwritten).
-	os.WriteFile("mine.go", []byte("package brand\n\nfunc Mine() {}\n"), 0o644)
-	if _, err := prepareTheme(&ThemeOptions{Out: "mine.go"}); err == nil || !strings.Contains(err.Error(), "not written by nectar theme") {
+	// A hand-written theme_light.go is never loaded (and so never overwritten).
+	os.MkdirAll("mine", 0o755)
+	os.WriteFile(filepath.Join("mine", themeeditor.LightFile), []byte("package mine\n\nfunc Mine() {}\n"), 0o644)
+	if _, err := prepareTheme(&ThemeOptions{Dir: "mine"}); err == nil || !strings.Contains(err.Error(), "not written by nectar theme") {
 		t.Fatalf("hand-written file: %v", err)
 	}
-	for _, bad := range []ThemeOptions{{Out: "x.txt"}, {Out: "x.go", Func: "lower"}, {Out: "x.go", Package: "1pkg"}} {
+	os.WriteFile("file.go", []byte("package x\n"), 0o644)
+	for _, bad := range []ThemeOptions{{Dir: "file.go"}, {Dir: "x", Package: "1pkg"}, {Dir: "x", Package: "func"}, {Dir: "x", Prefix: "no-dash"}} {
 		if _, err := prepareTheme(&bad); err == nil {
 			t.Errorf("%+v accepted", bad)
 		}

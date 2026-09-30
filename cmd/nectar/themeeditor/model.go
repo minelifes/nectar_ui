@@ -3,12 +3,12 @@
 // every component theme) with a live preview, which writes the result as
 // Go code.
 //
-// The design is a Project: a seed color plus a set of edits, each a path
-// into material.Theme ("Card.Radius", "Text.BodyLarge.Size",
-// "FilledButton.BackgroundColor") and a value. Everything else keeps the
-// value material.NewTheme gives it. Color scheme edits ("Scheme.Primary")
-// are kept separately for the light and the dark theme, since the two
-// schemes differ; all other edits apply to both.
+// The design is a Project: a light and a dark Design, edited
+// independently. A design is a seed color plus a set of edits, each a
+// path into material.Theme ("Card.Radius", "Text.BodyLarge.Size",
+// "Scheme.Primary") and a value; everything else keeps the value
+// material.NewTheme gives it. The code is one file per mode, each a
+// material.Theme struct literal.
 package themeeditor
 
 import (
@@ -24,57 +24,56 @@ import (
 	"github.com/minelifes/nectar_ui/ui/widgets/text"
 )
 
-// Project is a theme design: what the editor shows, saves and turns into
-// code.
-type Project struct {
+// Design is the theme of one mode (light or dark): a seed color and a set
+// of edits on top of material.NewTheme(seed, dark).
+type Design struct {
 	Seed  geom.Color
-	Edits map[string]any // path → value, shared by light and dark
-	Light map[string]any // Scheme.* edits of the light theme
-	Dark  map[string]any // Scheme.* edits of the dark theme
+	Edits map[string]any // path → value
 }
 
-// NewProject starts a design from the M3 baseline seed.
-func NewProject() *Project {
-	return &Project{Seed: m.BaselineSeed, Edits: map[string]any{}, Light: map[string]any{}, Dark: map[string]any{}}
-}
+// NewDesign starts a design from the M3 baseline seed, unedited.
+func NewDesign() Design { return Design{Seed: m.BaselineSeed, Edits: map[string]any{}} }
 
-// Clone returns a deep copy.
-func (p *Project) Clone() *Project {
-	c := &Project{Seed: p.Seed, Edits: map[string]any{}, Light: map[string]any{}, Dark: map[string]any{}}
-	for k, v := range p.Edits {
+func (d Design) clone() Design {
+	c := Design{Seed: d.Seed, Edits: make(map[string]any, len(d.Edits))}
+	for k, v := range d.Edits {
 		c.Edits[k] = v
-	}
-	for k, v := range p.Light {
-		c.Light[k] = v
-	}
-	for k, v := range p.Dark {
-		c.Dark[k] = v
 	}
 	return c
 }
 
-// edits returns the map a path belongs to for the given mode.
-func (p *Project) edits(path string, dark bool) map[string]any {
-	if !isScheme(path) {
-		return p.Edits
-	}
+// Project is what the editor shows, saves and turns into code: a light
+// and a dark design, edited independently (each has its own seed, scheme,
+// type scale and component themes).
+type Project struct {
+	Light, Dark Design
+}
+
+// NewProject starts both designs from the M3 baseline.
+func NewProject() *Project { return &Project{Light: NewDesign(), Dark: NewDesign()} }
+
+// Clone returns a deep copy.
+func (p *Project) Clone() *Project { return &Project{Light: p.Light.clone(), Dark: p.Dark.clone()} }
+
+// Mode returns the light or the dark design.
+func (p *Project) Mode(dark bool) *Design {
 	if dark {
-		return p.Dark
+		return &p.Dark
 	}
-	return p.Light
+	return &p.Light
 }
 
 func isScheme(path string) bool { return strings.HasPrefix(path, "Scheme.") }
 
-// Get returns the edit at path (for the given mode) and whether there is one.
+// Get returns the edit at path in a mode, and whether there is one.
 func (p *Project) Get(path string, dark bool) (any, bool) {
-	v, ok := p.edits(path, dark)[path]
+	v, ok := p.Mode(dark).Edits[path]
 	return v, ok
 }
 
-// Set records an edit. The value must have the path's kind (see KindOf
-// and CheckValue); colors are rounded to 8 bits per channel so generated
-// code reproduces them exactly.
+// Set records an edit in a mode. The value must have the path's kind (see
+// KindOf and CheckValue); colors are rounded to 8 bits per channel so
+// generated code reproduces them exactly.
 func (p *Project) Set(path string, dark bool, v any) error {
 	if err := CheckValue(path, v); err != nil {
 		return err
@@ -82,9 +81,15 @@ func (p *Project) Set(path string, dark bool, v any) error {
 	if c, ok := v.(geom.Color); ok {
 		v = Quantize(c)
 	}
-	p.edits(path, dark)[path] = v
+	p.Mode(dark).Edits[path] = v
 	return nil
 }
+
+// Seed returns a mode's seed color.
+func (p *Project) Seed(dark bool) geom.Color { return p.Mode(dark).Seed }
+
+// SetSeed changes a mode's seed color (its edits stay on top).
+func (p *Project) SetSeed(dark bool, c geom.Color) { p.Mode(dark).Seed = Quantize(c) }
 
 // CheckValue reports whether v can be stored at path: a geom.Color for
 // colors, float32 for sizes, int for elevations, bool for flags,
@@ -118,33 +123,50 @@ func CheckValue(path string, v any) error {
 	return nil
 }
 
-// Unset removes the edit at path: back to the default.
-func (p *Project) Unset(path string, dark bool) { delete(p.edits(path, dark), path) }
+// Unset removes the edit at path in a mode: back to the default.
+func (p *Project) Unset(path string, dark bool) { delete(p.Mode(dark).Edits, path) }
 
-// Count returns the number of edits.
-func (p *Project) Count() int { return len(p.Edits) + len(p.Light) + len(p.Dark) }
+// Count returns the number of edits in a mode.
+func (p *Project) Count(dark bool) int { return len(p.Mode(dark).Edits) }
 
-// Theme builds the light or dark theme the project describes: NewTheme
-// from the seed, then the scheme edits of that mode, then every other edit
-// (text styles first, so component edits see the final type scale).
+// Theme builds a mode's theme: material.NewTheme from its seed, then its
+// edits (scheme first, then text styles, then components), with every
+// color rounded to 8 bits per channel, exactly as the generated code
+// writes it.
 func (p *Project) Theme(dark bool) m.Theme {
-	t := m.NewTheme(p.Seed, dark)
+	d := p.Mode(dark)
+	t := m.NewTheme(d.Seed, dark)
 	for _, path := range p.Paths(dark) {
-		v, _ := p.Get(path, dark)
-		if err := setPath(&t, path, v); err != nil {
+		if err := setPath(&t, path, d.Edits[path]); err != nil {
 			panic(err) // paths are validated when edits are made or loaded
 		}
 	}
+	quantizeColors(reflect.ValueOf(&t).Elem())
 	return t
 }
 
-// Paths returns the edited paths of a mode in application order.
-func (p *Project) Paths(dark bool) []string {
-	var out []string
-	for k := range p.edits("Scheme.", dark) {
-		out = append(out, k)
+// quantizeColors rounds every geom.Color inside v (a settable value).
+func quantizeColors(v reflect.Value) {
+	switch {
+	case v.Type() == colorT:
+		v.Set(reflect.ValueOf(Quantize(v.Interface().(geom.Color))))
+	case v.Kind() == reflect.Struct:
+		for i := range v.NumField() {
+			if v.Type().Field(i).IsExported() {
+				quantizeColors(v.Field(i))
+			}
+		}
+	case v.Kind() == reflect.Array:
+		for i := range v.Len() {
+			quantizeColors(v.Index(i))
+		}
 	}
-	for k := range p.Edits {
+}
+
+// Paths returns a mode's edited paths in application order.
+func (p *Project) Paths(dark bool) []string {
+	out := make([]string, 0, p.Count(dark))
+	for k := range p.Mode(dark).Edits {
 		out = append(out, k)
 	}
 	slices.SortFunc(out, comparePaths)

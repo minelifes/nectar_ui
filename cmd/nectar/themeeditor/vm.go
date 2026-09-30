@@ -2,6 +2,7 @@ package themeeditor
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/minelifes/nectar_ui/ui/geom"
@@ -11,15 +12,17 @@ import (
 
 // Options configure the editor.
 type Options struct {
-	// Out is the file Save writes (and the design was loaded from, if it
-	// existed). Empty: no saving, the code can still be copied.
-	Out string
+	// Dir is the folder Save writes theme_light.go and theme_dark.go to
+	// (and the designs were loaded from, if they existed). Empty: no
+	// saving, the code can still be copied.
+	Dir string
 	Gen GenOptions
 }
 
 // VM is the editor's view model. The project is changed only on the UI
 // goroutine, through its methods; Rev counts the changes so the views
-// bound to it rebuild.
+// bound to it rebuild. Edits go to the design of the previewed mode
+// (Dark): the light and dark designs are independent.
 type VM struct {
 	mvvm.ViewModel
 	Rev     *mvvm.Property[int]
@@ -108,18 +111,30 @@ func (vm *VM) Theme(dark bool) m.Theme {
 	return *vm.cache[i]
 }
 
-// Seed returns the seed color.
-func (vm *VM) Seed() geom.Color { return vm.project.Seed }
+// Seed returns the previewed mode's seed color.
+func (vm *VM) Seed() geom.Color { return vm.project.Seed(vm.Dark.Get()) }
 
-// SetSeed changes the seed color (scheme edits stay on top).
+// SetSeed changes the previewed mode's seed color (its edits stay on top).
 func (vm *VM) SetSeed(c geom.Color) {
 	c = Quantize(c)
-	if c.A == 0 || c == vm.project.Seed {
+	if c.A == 0 || c == vm.Seed() {
 		return
 	}
-	vm.project.Seed = c
+	vm.project.SetSeed(vm.Dark.Get(), c)
 	vm.changed()
 }
+
+// CopyFromOtherMode replaces the previewed mode's design with a copy of
+// the other mode's (a starting point: the scheme is still generated for
+// this mode from the seed, unless scheme roles were edited).
+func (vm *VM) CopyFromOtherMode() {
+	dark := vm.Dark.Get()
+	*vm.project.Mode(dark) = vm.project.Mode(!dark).clone()
+	vm.changed()
+}
+
+// EditsIn returns the number of edits of a mode.
+func (vm *VM) EditsIn(dark bool) int { return vm.project.Count(dark) }
 
 // Edit returns the edit at path for the previewed mode.
 func (vm *VM) Edit(path string) (any, bool) { return vm.project.Get(path, vm.Dark.Get()) }
@@ -145,23 +160,21 @@ func (vm *VM) Unset(path string) {
 	vm.changed()
 }
 
-// ResetSection reverts every field of a section (both modes).
+// ResetSection reverts every field of a section in the previewed mode.
 func (vm *VM) ResetSection(s Section) {
 	for _, f := range s.Fields {
-		vm.project.Unset(f.Path, false)
-		vm.project.Unset(f.Path, true)
+		vm.project.Unset(f.Path, vm.Dark.Get())
 	}
 	vm.changed()
 }
 
-// ResetAll starts over from the baseline design.
-func (vm *VM) ResetAll() {
-	vm.project = NewProject()
+// ResetMode starts the previewed mode's design over from the baseline.
+func (vm *VM) ResetMode() {
+	*vm.project.Mode(vm.Dark.Get()) = NewDesign()
 	vm.changed()
 }
 
-// EditCount returns how many fields of s are edited (in the previewed
-// mode for scheme fields).
+// EditCount returns how many fields of s are edited in the previewed mode.
 func (vm *VM) EditCount(s Section) int {
 	n := 0
 	for _, f := range s.Fields {
@@ -172,28 +185,28 @@ func (vm *VM) EditCount(s Section) int {
 	return n
 }
 
-// Code returns the generated Go file.
-func (vm *VM) Code() (string, error) {
-	src, err := vm.project.GoCode(vm.opts.Gen)
+// Code returns the generated Go file of a mode.
+func (vm *VM) Code(dark bool) (string, error) {
+	src, err := vm.project.GoCode(dark, vm.opts.Gen)
 	return string(src), err
 }
 
 // Dirty reports whether there are unsaved changes.
 func (vm *VM) Dirty() bool { return vm.Saved.Get() != vm.Rev.Get() }
 
-// Save writes the generated code to Options.Out.
+// Save writes theme_light.go and theme_dark.go to Options.Dir.
 func (vm *VM) Save() error {
-	if vm.opts.Out == "" {
-		err := fmt.Errorf("no output file: start with nectar theme -o <file.go>")
+	if vm.opts.Dir == "" {
+		err := fmt.Errorf("no output folder: start with nectar theme <folder>")
 		vm.Status.Set(err.Error())
 		return err
 	}
-	if err := vm.project.Save(vm.opts.Out, vm.opts.Gen); err != nil {
+	if err := vm.project.Save(vm.opts.Dir, vm.opts.Gen); err != nil {
 		vm.Status.Set("Save failed: " + err.Error())
 		return err
 	}
 	vm.Saved.Set(vm.Rev.Get())
-	vm.Status.Set("Saved " + vm.opts.Out)
+	vm.Status.Set("Saved " + filepath.Join(vm.opts.Dir, LightFile) + " and " + DarkFile)
 	return nil
 }
 

@@ -224,7 +224,7 @@ type ProgressIndicatorTheme struct {
 
 // InputDecorationTheme styles TextField.
 type InputDecorationTheme struct {
-	Outlined         *bool
+	Outlined         *bool      // TextField{Outlined: true} is outlined regardless
 	FillColor        geom.Color // filled fields
 	FocusColor       geom.Color // label, indicator and cursor when focused
 	BorderColor      geom.Color // idle indicator / outline
@@ -259,7 +259,7 @@ type AppBarTheme struct {
 	ShadowColor        geom.Color
 	Elevation          *int
 	Height             *float32 // the toolbar row (default 64)
-	CenterTitle        *bool    // small bars
+	CenterTitle        *bool    // AppBarSmall bars (other variants keep theirs)
 	TitleTextStyle     text.Style
 }
 

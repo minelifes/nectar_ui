@@ -55,9 +55,7 @@ func (a AppBar) Build(ctx w.BuildContext) w.Widget {
 	titleSt := pickTC(st.TitleTextStyle, th.Text.TitleLarge, fg)
 	variant := a.Variant
 	if variant == AppBarSmall && pickB(st.CenterTitle, false) {
-		variant = AppBarCenterAligned
-	} else if variant == AppBarCenterAligned && !pickB(st.CenterTitle, true) {
-		variant = AppBarSmall
+		variant = AppBarCenterAligned // an explicit Variant always wins
 	}
 	row := []w.Widget{}
 	if lead != nil {

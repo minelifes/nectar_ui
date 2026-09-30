@@ -33,7 +33,8 @@ type TextField struct {
 	Width       float32 // 0 = fill available width
 	OnChanged   func(string)
 	OnSubmitted func(string)
-	// Style overrides Theme.Input. Style.Outlined wins over Outlined.
+	// Style overrides Theme.Input. Outlined: true wins over both; otherwise
+	// Style / Theme.Input Outlined decides.
 	Style InputDecorationTheme
 }
 
@@ -72,7 +73,9 @@ func (s *textFieldState) Build(ctx w.BuildContext) w.Widget {
 	th := ThemeOf(ctx)
 	sc := th.Scheme
 	st := merge(th.Input, tf.Style)
-	tf.Outlined = pickB(st.Outlined, tf.Outlined)
+	if !tf.Outlined { // an explicit Outlined: true wins over the theme
+		tf.Outlined = pickB(st.Outlined, false)
+	}
 	radius := pickF(st.Radius, CornerExtraSmall)
 	hasText := s.ctrl.Text() != ""
 	if s.focused || hasText {

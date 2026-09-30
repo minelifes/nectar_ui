@@ -95,9 +95,16 @@ func Dev(o DevOptions) error {
 	s := &devSession{o: o, tmp: tmp, state: filepath.Join(tmp, "state.json")}
 
 	changes := make(chan []string, 1)
+	done := make(chan struct{})
+	defer close(done) // after stopWatch (defers run in reverse): unblocks a pending send
 	stopWatch := hotreload.Watch(o.Dir, func(rel string) bool {
 		return slices.Contains(o.Ext, filepath.Ext(rel))
-	}, o.Poll, func(changed []string) { changes <- changed })
+	}, o.Poll, func(changed []string) {
+		select {
+		case changes <- changed:
+		case <-done:
+		}
+	})
 	defer stopWatch()
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, os.Interrupt)

@@ -237,3 +237,54 @@ func TestThemeInteractionFields(t *testing.T) {
 		t.Error("DialogTheme.BarrierColor not used")
 	}
 }
+
+// Explicit widget settings win over the theme, even for bool-like fields
+// whose zero value can't be told apart from "unset".
+func TestExplicitWidgetSettingsBeatTheme(t *testing.T) {
+	th := m.NewTheme(m.BaselineSeed, false)
+	th.Input = m.InputDecorationTheme{Outlined: w.Ptr(false)}
+	th.AppBar = m.AppBarTheme{CenterTitle: w.Ptr(false)}
+	strokes := func(cv *render.Canvas) int {
+		n := 0
+		for _, c := range cv.Commands {
+			if c.Kind == render.CmdStroke {
+				n++
+			}
+		}
+		return n
+	}
+	cv := tester.New(themed(th, w.SizedBox{Width: 300, Child: m.TextField{Label: "x", Outlined: true}}), 400, 200).Pump()
+	if strokes(cv) == 0 {
+		t.Error("TextField{Outlined: true} drawn filled because the theme said Outlined=false")
+	}
+
+	// title returns where the title's text starts (its alignment offset).
+	title := func(th m.Theme, v m.AppBarVariant) float32 {
+		cv := tester.New(themed(th, w.SizedBox{Width: 400, Child: m.AppBar{Title: "Title", Variant: v}}), 400, 200).Pump()
+		for _, c := range cv.Commands {
+			if c.Kind == render.CmdText && c.Text != nil && len(c.Text.Lines) > 0 {
+				return c.Rect.X + c.Text.Lines[0].X
+			}
+		}
+		t.Fatal("no title drawn")
+		return 0
+	}
+	if title(th, m.AppBarCenterAligned) == title(th, m.AppBarSmall) {
+		t.Error("AppBar{Variant: AppBarCenterAligned} lost its centered title to Theme.AppBar.CenterTitle=false")
+	}
+	th.AppBar.CenterTitle = w.Ptr(true)
+	if title(th, m.AppBarSmall) != title(th, m.AppBarCenterAligned) {
+		t.Error("Theme.AppBar.CenterTitle=true should center small app bars")
+	}
+}
+
+// A plain widgets.Provider[Theme] (how themes were provided before
+// ThemeScope compared them by value) still works.
+func TestProviderThemeStillFound(t *testing.T) {
+	th := m.NewTheme(m.BaselineSeed, false)
+	th.Divider.Color = tRed
+	cv := tester.New(w.Provider[m.Theme]{Value: th, Child: w.Column{ShrinkMain: true, Children: []w.Widget{m.Divider{}}}}, 200, 50).Pump()
+	if len(rectsIn(cv, tRed)) == 0 {
+		t.Error("ThemeOf ignores a widgets.Provider[Theme]")
+	}
+}

@@ -290,6 +290,11 @@ func ThemeOf(ctx w.BuildContext) Theme {
 	if t, ok := w.DependOn[themeProvider](ctx); ok {
 		return t.theme
 	}
+	// A plain widgets.Provider[Theme] works too (compared with ==, so a
+	// theme holding fresh pointers rebuilds its dependents each time).
+	if t, ok := w.Of[Theme](ctx); ok {
+		return t
+	}
 	return defaultTheme()
 }
 

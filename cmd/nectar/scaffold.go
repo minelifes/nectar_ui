@@ -115,7 +115,8 @@ func Generate(o Options) error {
 	d := data{Name: name, Module: o.Module, Title: o.Title, Engine: EnginePath, Seed: seed,
 		Exe: exeName(name), ID: bundleID(o.Module)}
 
-	fmt.Fprintf(o.Out, "Creating %s (%s template) in %s\n", o.Module, o.Template, dir)
+	p := newPrinter(o.Out)
+	p.header("new", p.bold(o.Module)+" "+p.dim("("+o.Template+" template) in "+dir))
 	// Template files win over common ones with the same name.
 	own := map[string]bool{}
 	fs.WalkDir(templateFS, "templates/"+o.Template, func(p string, e fs.DirEntry, err error) error {
@@ -124,10 +125,10 @@ func Generate(o Options) error {
 		}
 		return nil
 	})
-	if err := render("templates/common", dir, d, o.Out, own); err != nil {
+	if err := render("templates/common", dir, d, p, own); err != nil {
 		return err
 	}
-	if err := render("templates/"+o.Template, dir, d, o.Out, nil); err != nil {
+	if err := render("templates/"+o.Template, dir, d, p, nil); err != nil {
 		return err
 	}
 	var seedRGB uint32
@@ -138,39 +139,46 @@ func Generate(o Options) error {
 	if err := writeIconPNG(filepath.Join(dir, "assets", "icon.png"), defaultIcon(seedRGB, o.Title)); err != nil {
 		return err
 	}
-	fmt.Fprintln(o.Out, "  create assets/icon.png")
+	p.step("create", "assets/icon.png")
 	if err := writeIconPNG(filepath.Join(dir, "assets", "images", "welcome.png"), welcomeImage(seedRGB, 1200, 480)); err != nil {
 		return err
 	}
-	fmt.Fprintln(o.Out, "  create assets/images/welcome.png")
+	p.step("create", "assets/images/welcome.png")
 	if err := writeGoMod(dir, o); err != nil {
 		return err
 	}
-	fmt.Fprintln(o.Out, "  create go.mod")
+	p.step("create", "go.mod")
 
 	if !o.NoTidy {
 		if _, err := exec.LookPath("go"); err != nil {
 			return errors.New("go isn't on PATH; install Go " + GoVersion + "+ or rerun with -no-tidy")
 		}
 		if o.Local == "" {
-			if err := run(o.Out, dir, "go", "get", EnginePath+"@"+o.Version); err != nil {
+			if err := run(p, dir, "go", "get", EnginePath+"@"+o.Version); err != nil {
 				return fmt.Errorf("fetching the engine failed (is %s pushed to GitHub?): %w", EnginePath, err)
 			}
 		}
-		if err := run(o.Out, dir, "go", "mod", "tidy"); err != nil {
+		if err := run(p, dir, "go", "mod", "tidy"); err != nil {
 			return err
 		}
 	}
 	if o.Git {
-		if err := run(o.Out, dir, "git", "init", "-q"); err != nil {
+		if err := run(p, dir, "git", "init", "-q"); err != nil {
 			return err
 		}
 	}
-	rel := o.Dir
-	fmt.Fprintf(o.Out, "\nDone. Next:\n\n  cd %s\n  CGO_ENABLED=0 go run .     # run\n  go test ./...              # test\n  nectar build               # package as a desktop app with its icon\n\n", rel)
-	if o.NoTidy {
-		fmt.Fprintln(o.Out, "Run `go mod tidy` first to fetch the engine (skipped with -no-tidy).")
+	p.printf("\n")
+	p.success("Created %s", o.Title)
+	next := [][2]string{
+		{"cd " + o.Dir, "go to the app"},
+		{"nectar dev", "run it; restarts on save, state kept"},
+		{"go test ./...", "test"},
+		{"nectar build", "package as a desktop app with its icon"},
 	}
+	if o.NoTidy {
+		next = append([][2]string{next[0], {"go mod tidy", "fetch the engine (skipped with -no-tidy)"}}, next[1:]...)
+	}
+	p.commands("Next", next)
 	return nil
 }
 
@@ -213,7 +221,7 @@ func checkDir(dir string, force bool) error {
 
 // render executes every *.tmpl under src into dir. A leading "_" in a
 // file name becomes "." (embed skips dotfiles), and .go files are gofmt'ed.
-func render(src, dir string, d data, out io.Writer, skip map[string]bool) error {
+func render(src, dir string, d data, pr *printer, skip map[string]bool) error {
 	return fs.WalkDir(templateFS, src, func(p string, e fs.DirEntry, err error) error {
 		if err != nil || e.IsDir() {
 			return err
@@ -251,7 +259,7 @@ func render(src, dir string, d data, out io.Writer, skip map[string]bool) error 
 		if err := os.WriteFile(target, content, 0o644); err != nil {
 			return err
 		}
-		fmt.Fprintln(out, "  create", rel)
+		pr.step("create", rel)
 		return nil
 	})
 }
@@ -275,10 +283,13 @@ func writeGoMod(dir string, o Options) error {
 	return os.WriteFile(filepath.Join(dir, "go.mod"), []byte(b.String()), 0o644)
 }
 
-func run(out io.Writer, dir, name string, args ...string) error {
-	fmt.Fprintf(out, "  run   %s %s\n", name, strings.Join(args, " "))
+func run(p *printer, dir, name string, args ...string) error {
+	p.step("run", name+" "+strings.Join(args, " "))
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir
+	// The tool's own output (go: downloading …), indented under the step.
+	out := &gutter{w: p.w, prefix: "          ", style: p.dim}
+	defer out.Flush()
 	cmd.Stdout, cmd.Stderr = out, out
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 	return cmd.Run()

@@ -18,6 +18,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -44,39 +45,63 @@ func main() {
 	case "icon":
 		err = cmdIcon(args)
 	case "templates", "list":
-		for _, t := range Templates {
-			fmt.Printf("  %-10s %s\n", t.Name, t.Description)
-		}
+		listTemplates(newPrinter(os.Stdout))
 	case "version", "-v", "--version":
-		fmt.Println("nectar", toolVersion())
+		p := newPrinter(os.Stdout)
+		p.printf("%s %s\n", p.honey("nectar"), toolVersion())
 	case "help", "-h", "--help":
 		usage()
 	default:
-		fmt.Fprintf(os.Stderr, "nectar: unknown command %q\n\n", cmd)
+		newPrinter(os.Stderr).fail("unknown command %q", cmd)
 		usage()
 		os.Exit(2)
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "nectar:", err)
+		if errors.Is(err, flag.ErrHelp) {
+			return
+		}
+		newPrinter(os.Stderr).fail("%v", err)
 		os.Exit(1)
 	}
 }
 
+// commandList is the command table printed by usage.
+var commandList = [][3]string{
+	{"new", "[flags] <dir>", "create an app in <dir>"},
+	{"dev", "[flags] [dir]", "run the app, restarting it (state kept) when code changes"},
+	{"theme", "[file.go]", "design a Material theme in a live editor, save it as Go code"},
+	{"build", "[flags] [dir]", "package an app: macOS .app, Windows .exe, Linux + .desktop"},
+	{"icon", "[flags]", "generate a default app icon (assets/icon.png)"},
+	{"templates", "", "list the app templates"},
+	{"version", "", "print the version"},
+}
+
 func usage() {
-	fmt.Fprint(os.Stderr, `nectar creates Nectar UI apps.
+	p := newPrinter(os.Stderr)
+	p.printf("\n%s %s\n\n", p.honey("nectar"), "creates, runs and packages Nectar UI apps.")
+	p.printf("%s\n", p.bold("Usage"))
+	for _, c := range commandList {
+		p.printf("  %s %s%s  %s\n", p.dim("nectar"), p.green(c[0]), p.dim(pad(" "+c[1], 15-len(c[0]))), c[2])
+	}
+	p.printf("\n%s\n", p.bold("Flags for new"))
+	p.flags(newFlags(&Options{}))
+	p.printf("\n%s %s\n\n", p.dim("More:"), p.cyan("nectar <command> -h"))
+}
 
-Usage:
-  nectar new [flags] <dir>   create an app in <dir>
-  nectar dev [flags] [dir]   run the app, restarting it (state kept) when code changes
-  nectar theme [file.go]     design a Material theme in a live editor, save it as Go code
-  nectar build [flags] [dir] package an app: macOS .app, Windows .exe, Linux + .desktop
-  nectar icon [flags]        generate a default app icon (assets/icon.png)
-  nectar templates           list the app templates
-  nectar version             print the version
+// pad right-pads s to n columns.
+func pad(s string, n int) string {
+	if len(s) >= n {
+		return s
+	}
+	return s + strings.Repeat(" ", n-len(s))
+}
 
-Flags for new:
-`)
-	newFlags(&Options{}).PrintDefaults()
+func listTemplates(p *printer) {
+	p.printf("\n%s\n\n", p.bold("Templates"))
+	for _, t := range Templates {
+		p.printf("  %s %s\n", p.green(pad(t.Name, 10)), t.Description)
+	}
+	p.printf("\n%s %s\n\n", p.dim("Use one:"), p.cyan("nectar new -template <name> <dir>"))
 }
 
 func newFlags(o *Options) *flag.FlagSet {
@@ -120,14 +145,21 @@ func cmdIcon(args []string) error {
 	if err := writeIconPNG(*out, defaultIcon(c, *name)); err != nil {
 		return err
 	}
-	fmt.Println("Wrote", *out, "(replace it with your own 1024×1024 PNG any time)")
+	p := newPrinter(os.Stdout)
+	p.success("Wrote %s", *out)
+	p.printf("  %s\n", p.dim("replace it with your own 1024×1024 PNG any time"))
 	return nil
 }
 
 func cmdNew(args []string) error {
 	var o Options
 	fs := newFlags(&o)
-	fs.Usage = usage
+	fs.Usage = func() {
+		p := newPrinter(os.Stderr)
+		p.printf("\n%s %s %s\n\n", p.bold("Usage:"), p.green("nectar new"), p.dim("[flags] <dir>"))
+		p.flags(fs)
+		p.printf("\n")
+	}
 	// Accept flags before and after the folder name.
 	var rest []string
 	for {

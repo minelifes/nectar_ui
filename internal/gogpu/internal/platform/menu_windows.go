@@ -19,6 +19,7 @@ const (
 	mfSeparator = 0x0800 // MF_SEPARATOR
 	mfPopup     = 0x0010 // MF_POPUP: uIDNewItem is a submenu HMENU
 	mfGrayed    = 0x0001 // MF_GRAYED: disabled and grayed out
+	mfChecked   = 0x0008 // MF_CHECKED: check mark
 	mfEnabled   = 0x0000 // MF_ENABLED: enable menu item (counterpart to mfGrayed)
 	mfByCommand = 0x0000 // MF_BYCOMMAND: item identified by command ID (default)
 )
@@ -168,6 +169,9 @@ func appendMenuItem(hMenu uintptr, item MenuItem) {
 	if item.Disabled {
 		flags |= mfGrayed
 	}
+	if item.Checked {
+		flags |= mfChecked
+	}
 	menuItemDisabled.Store(id, item.Disabled)
 
 	if item.Role == MenuRoleQuit {
@@ -187,7 +191,11 @@ func appendMenuItem(hMenu uintptr, item MenuItem) {
 		menuActions.Store(id, item.Action)
 	}
 
-	title, _ := windows.UTF16PtrFromString(item.Title) // NUL in title is not possible from user input
+	text := item.Title
+	if item.ShortcutText != "" {
+		text += "\t" + item.ShortcutText // Win32 right-aligns what follows a tab
+	}
+	title, _ := windows.UTF16PtrFromString(text) // NUL in title is not possible from user input
 	procAppendMenuW.Call(hMenu, flags, uintptr(id), uintptr(unsafe.Pointer(title)))
 }
 

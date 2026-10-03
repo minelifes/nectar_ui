@@ -139,6 +139,16 @@ func (s *Snapshot) Find(id string) (Command, bool) {
 	return Command{}, false
 }
 
+// Keys returns the first shortcut of the captured command id (nil if none).
+func (s *Snapshot) Keys(id string) Sequence {
+	if c, ok := s.Find(id); ok {
+		if ks := s.host.Keymap.KeysFor(c); len(ks) > 0 {
+			return ks[0]
+		}
+	}
+	return nil
+}
+
 // ShortcutLabel returns the first shortcut of the captured command id,
 // formatted for a menu; "" if none.
 func (s *Snapshot) ShortcutLabel(id string) string {

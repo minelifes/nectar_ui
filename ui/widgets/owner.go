@@ -31,6 +31,10 @@ type BuildOwner struct {
 	// them with ResourcesOf(ctx).
 	Resources *resources.Set
 
+	// OpenWindow opens another window (set by the app; see the
+	// package-level OpenWindow).
+	OpenWindow func(opt WindowOptions, root Widget, done func(Window, error))
+
 	dirty       []Element
 	tickers     map[*Ticker]struct{}
 	focus       *FocusManager

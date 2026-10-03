@@ -98,7 +98,11 @@ func (q *inputQueue) enqueue(e queuedEvent) {
 // processInput dispatches queued events against the last laid-out tree.
 // Runs on the UI thread before build, so handlers can call SetState.
 func (a *App) processInput() {
-	q := a.input
+	a.input.process(a.pipeline.Root(), a.buildOwner.Focus(), a.gpuApp.SetCursor)
+}
+
+// process dispatches the queued events of one window.
+func (q *inputQueue) process(root render.RenderObject, fm *widgets.FocusManager, setCursor func(gpucontext.CursorShape)) {
 	if q == nil {
 		return
 	}
@@ -109,8 +113,6 @@ func (a *App) processInput() {
 	if len(events) == 0 {
 		return
 	}
-	root := a.pipeline.Root()
-	fm := a.buildOwner.Focus()
 	for _, e := range events {
 		switch {
 		case e.pointer != nil:
@@ -129,7 +131,7 @@ func (a *App) processInput() {
 	}
 	if c := q.dispatcher.Cursor(); c != q.cursor {
 		q.cursor = c
-		a.gpuApp.SetCursor(cursorShape(c))
+		setCursor(cursorShape(c))
 	}
 }
 

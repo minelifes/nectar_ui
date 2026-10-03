@@ -42,6 +42,10 @@ type Font struct {
 
 	// fallback fonts render the runes this one lacks (see WithFallback).
 	fallback []*Font
+	// data is the font file, parsed again for complex shaping on demand
+	// (shaper.go).
+	data []byte
+	hb   *hbState
 	// face is the font whose glyphs these are: f itself, or for a font made
 	// by WithFallback the font it was made from (glyph caches, atlas keys
 	// and metrics are shared with it).
@@ -62,6 +66,8 @@ func ParseFont(name string, data []byte) (*Font, error) {
 		glyphs:   make(map[rune]GlyphID),
 		advances: make(map[GlyphID]float32),
 		kerns:    make(map[[2]GlyphID]float32),
+		data:     data,
+		hb:       &hbState{},
 	}
 	f.face = f
 	// Querying metrics with ppem == upem gives values in font units (26.6).

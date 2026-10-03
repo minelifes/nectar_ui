@@ -171,7 +171,10 @@ func (r *RenderEditable) keepCaretVisible() {
 		return
 	}
 	_, x := r.xOf(r.SelExtent)
-	full := r.lines[0].stops[len(r.lines[0].stops)-1]
+	var full float32
+	for _, st := range r.lines[0].stops {
+		full = max(full, st)
+	}
 	view := r.size.W - 2
 	if x-r.scrollX > view {
 		r.scrollX = x - view
@@ -268,7 +271,12 @@ func (r *RenderEditable) Paint(ctx *PaintContext, o geom.Offset) {
 			s, e := max(lo, ls), min(hi, le)
 			// The selection goes on past this visual line.
 			continues := hi > le && li < len(r.lines)-1
-			if s < e || continues && lo <= le {
+			if l.para != nil && l.para.HasRTL() && s < e {
+				// Mixed directions: the selection can be several boxes.
+				for _, rc := range l.para.SelectionRects(s-ls, e-ls) {
+					c.FillRect(geom.Rect{X: x0 + rc.X, Y: y, W: rc.W, H: r.lineH}, r.SelectionColor)
+				}
+			} else if s < e || continues && lo <= le {
 				sx, ex := r.stopAt(l, s), r.stopAt(l, e)
 				if continues {
 					ex = l.stops[len(l.stops)-1]

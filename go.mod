@@ -4,6 +4,7 @@ go 1.26.0
 
 require (
 	github.com/fsnotify/fsnotify v1.9.0
+	github.com/go-text/typesetting v0.3.5
 	github.com/gogpu/gogpu v0.54.0
 	github.com/gogpu/gpucontext v0.31.3
 	github.com/gogpu/gputypes v0.8.0

@@ -79,7 +79,8 @@ func (p *Paragraph) CaretRect(i int) geom.Rect {
 }
 
 // SelectionRects returns the boxes covering the text between byte offsets
-// a and b (in any order), one per line.
+// a and b (in any order). In right-to-left or mixed text a line may give
+// several boxes.
 func (p *Paragraph) SelectionRects(a, b int) []geom.Rect {
 	if a > b {
 		a, b = b, a
@@ -89,24 +90,54 @@ func (p *Paragraph) SelectionRects(a, b int) []geom.Rect {
 	}
 	var out []geom.Rect
 	for li, l := range p.Lines {
-		if l.End < a || l.Start > b || (l.End == a && li < len(p.Lines)-1) {
+		last := li == len(p.Lines)-1
+		if l.End < a || l.Start > b || (l.End == a && !last) {
 			continue
 		}
-		x0 := l.X + l.Stops[0]
-		if a > l.Start {
-			_, x0 = p.caretInLine(li, a)
+		var line []geom.Rect
+		for _, c := range l.Clusters {
+			lo, hi := max(a, c.Start), min(b, c.End)
+			if lo >= hi || c.End <= c.Start {
+				continue
+			}
+			// Part of a ligature: its share of the width.
+			f0 := float32(lo-c.Start) / float32(c.End-c.Start)
+			f1 := float32(hi-c.Start) / float32(c.End-c.Start)
+			x0, x1 := c.X+c.W*f0, c.X+c.W*f1
+			if c.RTL {
+				x0, x1 = c.X+c.W*(1-f1), c.X+c.W*(1-f0)
+			}
+			r := geom.Rect{X: l.X + x0, Y: l.Top, W: x1 - x0, H: l.Height}
+			// Kerning can make neighbours overlap or leave a hairline gap:
+			// merge boxes that touch.
+			if n := len(line); n > 0 && r.X <= line[n-1].Right()+0.5 && r.Right() >= line[n-1].X-0.5 {
+				x0, x1 := min(r.X, line[n-1].X), max(r.Right(), line[n-1].Right())
+				line[n-1].X, line[n-1].W = x0, x1-x0
+				continue
+			}
+			line = append(line, r)
 		}
-		x1 := l.X + l.Stops[len(l.Stops)-1]
-		if b < l.End {
-			_, x1 = p.caretInLine(li, b)
-		} else if li < len(p.Lines)-1 && b > l.End {
-			x1 += 4 // the selection runs on past the line break
+		if !last && b > l.End {
+			// The selection runs on past the line break.
+			end := l.X + l.Width
+			if l.RTL {
+				line = append(line, geom.Rect{X: l.X - 4, Y: l.Top, W: 4, H: l.Height})
+			} else if n := len(line); n > 0 && abs(line[n-1].Right()-end) < 0.5 {
+				line[n-1].W += 4
+			} else {
+				line = append(line, geom.Rect{X: end, Y: l.Top, W: 4, H: l.Height})
+			}
 		}
-		if x1 > x0 {
-			out = append(out, geom.Rect{X: x0, Y: l.Top, W: x1 - x0, H: l.Height})
-		}
+		out = append(out, line...)
 	}
 	return out
+}
+
+func abs(v float32) float32 {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
 
 func (p *Paragraph) caretInLine(li, i int) (int, float32) {
@@ -154,4 +185,19 @@ func WordAt(s string, i int) (start, end int) {
 		end += n
 	}
 	return start, end
+}
+
+// HasRTL reports whether any text of the paragraph runs right to left.
+func (p *Paragraph) HasRTL() bool {
+	for _, l := range p.Lines {
+		if l.RTL {
+			return true
+		}
+		for _, c := range l.Clusters {
+			if c.RTL {
+				return true
+			}
+		}
+	}
+	return false
 }

@@ -118,9 +118,9 @@ type todoList struct{}
 
 func (todoList) Build(ctx w.BuildContext) w.Widget {
 	vm := mvvm.Use[*TodoVM](ctx)
-	hide := mvvm.Watch(ctx, vm.HideDone)
+	hide := vm.HideDone.Watch(ctx)
 	var rows []w.Widget
-	for _, t := range mvvm.Watch(ctx, vm.Todos) {
+	for _, t := range vm.Todos.Watch(ctx) {
 		if hide && t.Done {
 			continue
 		}

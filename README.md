@@ -164,7 +164,7 @@ func (CounterPage) Build(ctx w.BuildContext) w.Widget {
 ```
 
 - **Observables:** `Property[T]` (notifies only when the value changes; `Set` fits `OnChanged` callbacks), `Computed[T]` (derived from other observables, notifies only when its result changes), `List[T]` (copy-on-write slice: `Get` returns a snapshot that later edits never touch), and `Notifier` / `ViewModel` for models that notify as a whole. Anything with `Subscribe(func()) (cancel func())` can be bound.
-- **Bindings:** `Bind(o, builder)` rebuilds with o's value; `Watch(ctx, o)` inside any `Build` subscribes that widget; `Select(model, pick, builder)` rebuilds only when the picked value changes; `Observer{Sources, Builder}` watches several.
+- **Bindings:** `Bind(o, builder)` rebuilds with o's value; `Watch(ctx, o)` (or `o.Watch(ctx)` on a `Property`, `Computed` or `List`) inside any `Build` subscribes that widget; `Select(model, pick, builder)` rebuilds only when the picked value changes; `Observer{Sources, Builder}` watches several.
 - **Lifetime:** `Provide[VM]` creates the view model when it enters the tree and calls its `Dispose` when it leaves; `Use[VM](ctx)` finds it (a plain `widgets.Provider[VM]` works too). Subscriptions end with the widget, and a build that stops watching something drops that subscription.
 - **Threads:** observables are safe for concurrent use, so a view model may update them from any goroutine. Bindings coalesce notifications and rebuild once, on the UI goroutine, before the next frame.
 - **Lower level:** `widgets.Listen(ctx, listenable)` is what `Watch` uses; call it from your own widgets or controllers.

@@ -10,6 +10,10 @@ import (
 // Watch returns o's value and makes the widget whose Build calls it rebuild
 // when o changes (see widgets.Listen). Only that widget rebuilds; to keep
 // the rebuild small, call it from a small widget or use Bind.
+//
+// Property, Computed and List have a Watch method that does the same
+// (vm.Todos.Watch(ctx)); some editors can't infer T for this function
+// from those types, although the compiler can.
 func Watch[T any](ctx w.BuildContext, o Observable[T]) T {
 	w.Listen(ctx, o)
 	return o.Get()
@@ -23,7 +27,7 @@ type Binding[T any] struct {
 }
 
 func (b Binding[T]) Build(ctx w.BuildContext) w.Widget {
-	return b.Builder(ctx, Watch(ctx, b.Source))
+	return b.Builder(ctx, Watch[T](ctx, b.Source))
 }
 
 // Bind shows o through build and rebuilds only that part when o changes:

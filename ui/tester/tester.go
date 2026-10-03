@@ -104,9 +104,14 @@ func (t *Tester) Clipboard() string { return t.clipboard }
 
 // Pump runs one frame: build, layout, paint.
 func (t *Tester) Pump() *render.Canvas {
+	t0 := time.Now()
 	t.Build.FlushBuild()
+	t1 := time.Now()
 	t.Pipeline.FlushLayout(t.Size)
-	return t.Pipeline.FlushPaint(t.Size)
+	t2 := time.Now()
+	c := t.Pipeline.FlushPaint(t.Size)
+	t.Build.RecordFrame(t1.Sub(t0), t2.Sub(t1), time.Since(t2), len(c.Commands))
+	return c
 }
 
 // Advance moves the clock forward in 16ms frames, running animations.
@@ -398,4 +403,23 @@ func (t *Tester) Close() {
 		t.inst.Release()
 		t.renderer = nil
 	}
+}
+
+// Semantics returns every annotated part of the screen (see
+// widgets.SemanticsTree), depth first.
+func (t *Tester) Semantics() []*widgets.SemanticsNode {
+	t.Pump()
+	return widgets.FlattenSemantics(widgets.SemanticsTree(t.Pipeline.Root()))
+}
+
+// FindSemantics returns the topmost node with the given role ("" = any)
+// and label.
+func (t *Tester) FindSemantics(role, label string) (*widgets.SemanticsNode, bool) {
+	var found *widgets.SemanticsNode
+	for _, n := range t.Semantics() {
+		if (role == "" || n.Role == role) && n.Label == label {
+			found = n
+		}
+	}
+	return found, found != nil
 }

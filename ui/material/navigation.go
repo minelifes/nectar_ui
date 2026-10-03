@@ -201,8 +201,9 @@ func (s *navBarState) Build(ctx w.BuildContext) w.Widget {
 		if nb.OnSelected != nil {
 			tap = func() { nb.OnSelected(i) }
 		}
-		items[i] = w.Expanded{Child: InkSurface{OnTap: tap, ContentColor: pick(st.OverlayColor, sc.OnSurface), NoFocus: false,
-			Child: w.Column{Main: w.MainCenter, Cross: w.CrossCenter, Children: kids}}}
+		items[i] = w.Expanded{Child: w.Semantics{SemanticsData: w.SemanticsData{Role: "tab", Label: d.Label, Selected: sel, Disabled: tap == nil, OnTap: tap},
+			Child: InkSurface{OnTap: tap, ContentColor: pick(st.OverlayColor, sc.OnSurface), NoFocus: false,
+				Child: w.Column{Main: w.MainCenter, Cross: w.CrossCenter, Children: kids}}}}
 	}
 	return w.Container{Color: pick(st.BackgroundColor, sc.SurfaceContainer), Height: pickF(st.Height, 80),
 		Child: w.Padding{Padding: geom.InsetsHV(8, 0), Child: w.Row{Cross: w.CrossStretch, Spacing: 8, Children: items}}}
@@ -400,7 +401,8 @@ func (s *tabBarState) Build(ctx w.BuildContext) w.Widget {
 		if tb.OnChanged != nil {
 			tap = func() { tb.OnChanged(i) }
 		}
-		tabs[i] = w.Expanded{Child: InkSurface{OnTap: tap, ContentColor: pick(st.OverlayColor, fg), Child: w.SizedBox{Height: h, Child: content}}}
+		tabs[i] = w.Expanded{Child: w.Semantics{SemanticsData: w.SemanticsData{Role: "tab", Label: t.Text, Selected: i == tb.Selected, Disabled: tap == nil, OnTap: tap},
+			Child: InkSurface{OnTap: tap, ContentColor: pick(st.OverlayColor, fg), Child: w.SizedBox{Height: h, Child: content}}}}
 	}
 	n := len(tb.Tabs)
 	secondary := tb.Secondary

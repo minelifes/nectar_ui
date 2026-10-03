@@ -80,14 +80,14 @@ func commonButton(th Theme, st ButtonStyle, onPressed func(), label string, icon
 		kids = append(kids, w.Icon{Icon: icon, Size: iconSize, Color: iconC})
 	}
 	kids = append(kids, content)
-	return InkSurface{
+	return w.Semantics{SemanticsData: w.SemanticsData{Role: "button", Label: label, Disabled: onPressed == nil, OnTap: onPressed}, Child: InkSurface{
 		OnTap: onPressed, Color: bg, ContentColor: pick(st.OverlayColor, fg), ShadowColor: st.ShadowColor,
 		BorderColor: sideC, BorderWidth: sideW,
 		Radius: pickF(st.Radius, CornerFull), Elevation: elev, RaiseOnHover: raise,
 		Child: w.ConstrainedBox{Constraints: geom.Constraints{MinW: pickF(st.MinWidth, 48), MaxW: geom.Inf, MinH: pickF(st.MinHeight, 40), MaxH: geom.Inf},
 			Child: w.Padding{Padding: pickE(st.Padding, geom.InsetsHV(24, 0)), Child: w.IconTheme{Size: iconSize, Color: iconC,
 				Child: w.Row{Main: w.MainCenter, Cross: w.CrossCenter, ShrinkMain: true, Spacing: 8, Children: kids}}}},
-	}
+	}}
 }
 
 // ElevatedButton: tonal surface with a shadow, for emphasis on patterned
@@ -191,6 +191,9 @@ type IconButton struct {
 	Color        geom.Color // icon color (unselected); wins over Style
 	Size         float32    // icon size; 0 = Style / 24
 	Style        ButtonStyle
+	// SemanticLabel names the button for assistive technology and tests
+	// (it shows only an icon).
+	SemanticLabel string
 }
 
 func iconButtonDefaults(s ColorScheme, v IconButtonVariant, toggle bool) ButtonStyle {
@@ -219,6 +222,11 @@ func iconButtonDefaults(s ColorScheme, v IconButtonVariant, toggle bool) ButtonS
 }
 
 func (b IconButton) Build(ctx w.BuildContext) w.Widget {
+	return w.Semantics{SemanticsData: w.SemanticsData{Role: "button", Label: b.SemanticLabel, Checkable: b.Toggle, Checked: b.Toggle && b.Selected,
+		Disabled: b.OnPressed == nil, OnTap: b.OnPressed}, Child: b.build(ctx)}
+}
+
+func (b IconButton) build(ctx w.BuildContext) w.Widget {
 	th := ThemeOf(ctx)
 	s := th.Scheme
 	st := merge(merge(iconButtonDefaults(s, b.Variant, b.Toggle), th.IconButton), b.Style)

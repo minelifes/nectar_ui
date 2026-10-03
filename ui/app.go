@@ -7,6 +7,7 @@ package ui
 import (
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/gogpu/gogpu"
 
@@ -152,9 +153,13 @@ func (a *App) frame(dc *gogpu.Context) {
 	// (the OS hit test for frameless title bars reads the tree: keep it out)
 	a.hits.mu.Lock()
 	a.processInput()
+	t0 := time.Now()
 	a.buildOwner.FlushBuild()
+	t1 := time.Now()
 	a.pipeline.FlushLayout(window)
+	t2 := time.Now()
 	canvas := a.pipeline.FlushPaint(window)
+	a.buildOwner.RecordFrame(t1.Sub(t0), t2.Sub(t1), time.Since(t2), len(canvas.Commands))
 	a.hits.mu.Unlock()
 	a.syncIME(scale)
 

@@ -346,13 +346,14 @@ func (s *menuPanelState) Build(ctx w.BuildContext) w.Widget {
 		i := i
 		rows = append(rows, w.Builder{Builder: func(ctx w.BuildContext) w.Widget {
 			s.ctx[i] = ctx
-			return w.MouseRegion{OnEnter: func(w.PointerEvent) {
+			return w.Semantics{SemanticsData: w.SemanticsData{Role: "menuitem", Label: it.Label, Hint: it.Trailing, Checkable: it.Checked, Checked: it.Checked,
+				Selected: it.Selected, Disabled: it.Disabled, OnTap: tap}, Child: w.MouseRegion{OnEnter: func(w.PointerEvent) {
 				if !it.Disabled {
 					s.highlight(i)
 				}
 			}, Child: InkSurface{OnTap: tap, Color: bg, ContentColor: sc.OnSurface, Disabled: it.Disabled, NoFocus: true,
 				Child: w.SizedBox{Height: itemH, Child: w.Padding{Padding: geom.InsetsHV(12, 0),
-					Child: w.Row{Cross: w.CrossCenter, Spacing: 12, Children: kids}}}}}
+					Child: w.Row{Cross: w.CrossCenter, Spacing: 12, Children: kids}}}}}}
 		}})
 	}
 	t := s.t.Value()

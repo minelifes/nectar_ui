@@ -37,6 +37,9 @@ type PointerEvent struct {
 	Scroll   geom.Offset // scroll amount in pixels (PointerScroll only)
 	Button   int         // button that changed (Down/Up), -1 otherwise
 	Touch    bool        // true for touch input
+	// Mods are the keyboard modifiers held (widgets.Modifiers bits:
+	// Shift 1, Control 2, Alt 4, Super 8).
+	Mods uint8
 
 	arena *arena
 }

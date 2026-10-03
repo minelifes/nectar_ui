@@ -264,3 +264,32 @@ func round(v float32) float32 {
 	}
 	return float32(int(v + 0.5))
 }
+
+// RenderOffstage lays out its child but, while Offstage, takes no space,
+// paints nothing and isn't hit: the child keeps its state (and its
+// render tree) while hidden, like an inactive tab.
+type RenderOffstage struct {
+	Box
+	SingleChild
+	Offstage bool
+}
+
+func (r *RenderOffstage) PerformLayout(c geom.Constraints) geom.Size {
+	if r.child == nil {
+		return c.Smallest()
+	}
+	s := Layout(r.child, c)
+	if r.Offstage {
+		return c.Smallest()
+	}
+	return s
+}
+
+func (r *RenderOffstage) Paint(ctx *PaintContext, o geom.Offset) {
+	if !r.Offstage {
+		ctx.PaintChild(r.child, o)
+	}
+}
+
+// IgnoresPointer hides the child from hit testing while offstage.
+func (r *RenderOffstage) IgnoresPointer() bool { return r.Offstage }

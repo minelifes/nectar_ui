@@ -22,9 +22,14 @@ type Config struct {
 	// the whole window, including the strip with the window buttons. See
 	// WithCustomTitleBar.
 	CustomTitleBar bool
+	// NoAccessibility keeps the window's semantics (widgets.Semantics)
+	// from the OS screen-reader interface (AT-SPI, NSAccessibility, UI
+	// Automation), which is otherwise updated after frames that change it.
+	NoAccessibility bool
 
-	mounts    []resourceMount
-	devMounts []devMount
+	mounts      []resourceMount
+	devMounts   []devMount
+	windowState *windowStateConfig
 }
 
 type devMount struct {

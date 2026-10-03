@@ -133,10 +133,10 @@ type switcher struct {
 func (s switcher) Build(ctx w.BuildContext) w.Widget {
 	mvBuilds["switcher"]++
 	p := s.b
-	if mvvm.Watch(ctx, s.useA) {
+	if mvvm.Watch[bool](ctx, s.useA) {
 		p = s.a
 	}
-	return w.Text{Text: fmt.Sprint(mvvm.Watch(ctx, p))}
+	return w.Text{Text: fmt.Sprint(mvvm.Watch[int](ctx, p))}
 }
 
 func TestWatchDropsSubscriptionsABuildNoLongerMakes(t *testing.T) {
@@ -293,11 +293,29 @@ func mapsEqual(a, b map[string]int) bool {
 func TestWatchInsideLayoutBuilder(t *testing.T) {
 	p := mvvm.NewProperty("a")
 	tt := tester.New(w.LayoutBuilder{Builder: func(ctx w.BuildContext, _ geom.Constraints) w.Widget {
-		return w.Text{Text: mvvm.Watch(ctx, p)}
+		return w.Text{Text: mvvm.Watch[string](ctx, p)}
 	}}, 100, 100)
 	p.Set("b")
 	tt.Pump()
 	if got := tt.Texts(); len(got) != 1 || got[0] != "b" {
 		t.Fatalf("texts = %v", got)
+	}
+}
+
+// The Watch methods subscribe like mvvm.Watch.
+func TestWatchMethods(t *testing.T) {
+	l := mvvm.NewList("a")
+	p := mvvm.NewProperty(1)
+	c := mvvm.NewComputed(func() int { return p.Get() * 10 }, p)
+	tt := tester.New(w.Builder{Builder: func(ctx w.BuildContext) w.Widget {
+		return w.Text{Text: fmt.Sprint(l.Watch(ctx), p.Watch(ctx), c.Watch(ctx))}
+	}}, 200, 100)
+	defer tt.Close()
+	tt.Pump()
+	l.Append("b")
+	p.Set(2)
+	tt.Pump()
+	if got := tt.Texts(); len(got) != 1 || got[0] != "[a b] 2 20" {
+		t.Fatalf("texts %q", got)
 	}
 }

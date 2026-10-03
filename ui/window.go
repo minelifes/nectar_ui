@@ -3,7 +3,7 @@ package ui
 import (
 	"sync"
 
-	"github.com/gogpu/gogpu"
+	"github.com/minelifes/nectar_ui/internal/gogpu"
 
 	"github.com/minelifes/nectar_ui/ui/widgets"
 )
@@ -15,15 +15,19 @@ import (
 type nativeWindow struct {
 	app      *gogpu.App
 	titleBar titleBarKind
+	post     func(func()) // runs on the UI goroutine
 
 	mu            sync.Mutex
 	pending       []func(*gogpu.App)
 	width, height int
-	title         string
-	fullscreen    bool
-	maximized     bool
-	subs          map[int]func()
-	nextSub       int
+	// normalW/H is the last size while neither maximized nor fullscreen
+	// (what WithWindowState saves).
+	normalW, normalH int
+	title            string
+	fullscreen       bool
+	maximized        bool
+	subs             map[int]func()
+	nextSub          int
 }
 
 // Subscribe implements widgets.Listenable: fn runs after the window is
@@ -84,6 +88,9 @@ func (n *nativeWindow) apply() {
 	n.mu.Lock()
 	if w > 0 && h > 0 {
 		n.width, n.height = w, h
+		if !fs && !max {
+			n.normalW, n.normalH = w, h
+		}
 	}
 	changed := n.fullscreen != fs || n.maximized != max
 	n.fullscreen, n.maximized = fs, max

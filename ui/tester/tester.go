@@ -104,9 +104,14 @@ func (t *Tester) Clipboard() string { return t.clipboard }
 
 // Pump runs one frame: build, layout, paint.
 func (t *Tester) Pump() *render.Canvas {
+	t0 := time.Now()
 	t.Build.FlushBuild()
+	t1 := time.Now()
 	t.Pipeline.FlushLayout(t.Size)
-	return t.Pipeline.FlushPaint(t.Size)
+	t2 := time.Now()
+	c := t.Pipeline.FlushPaint(t.Size)
+	t.Build.RecordFrame(t1.Sub(t0), t2.Sub(t1), time.Since(t2), len(c.Commands))
+	return c
 }
 
 // Advance moves the clock forward in 16ms frames, running animations.
@@ -121,8 +126,10 @@ func (t *Tester) Advance(d time.Duration) {
 	t.Pump()
 }
 
-// Settle advances until no animation is running (up to 5s).
+// Settle runs a frame (building what was just inserted, like a popup) and
+// advances until no animation is running (up to 5s).
 func (t *Tester) Settle() {
+	t.Pump()
 	for i := 0; i < 320 && t.Build.HasActiveTickers(); i++ {
 		t.Advance(16 * time.Millisecond)
 	}
@@ -130,16 +137,29 @@ func (t *Tester) Settle() {
 
 // Pointer dispatches one pointer event and runs a frame.
 func (t *Tester) Pointer(kind render.PointerKind, x, y float32) {
-	e := render.PointerEvent{Kind: kind, ID: 1, Position: geom.Pt(x, y), Button: render.ButtonPrimary}
+	t.Dispatch(render.PointerEvent{Kind: kind, ID: 1, Position: geom.Pt(x, y), Button: render.ButtonPrimary})
+}
+
+// Dispatch delivers a pointer event as the app would (any button, with
+// modifiers) and runs a frame.
+func (t *Tester) Dispatch(e render.PointerEvent) {
 	fm := t.Build.Focus()
-	if kind == render.PointerDown {
+	if e.Kind == render.PointerDown {
 		fm.BeginPointerDown()
 	}
 	t.disp.Dispatch(t.Pipeline.Root(), e)
-	if kind == render.PointerDown {
+	if e.Kind == render.PointerDown {
 		fm.EndPointerDown()
 	}
 	t.Pump()
+}
+
+// SecondaryTap right-clicks at (x, y).
+func (t *Tester) SecondaryTap(x, y float32) {
+	e := render.PointerEvent{Kind: render.PointerDown, ID: 1, Position: geom.Pt(x, y), Button: render.ButtonSecondary}
+	t.Dispatch(e)
+	e.Kind = render.PointerUp
+	t.Dispatch(e)
 }
 
 // Tap presses and releases at (x, y).
@@ -181,6 +201,34 @@ func (t *Tester) Key(k widgets.KeyCode, mods ...widgets.Modifiers) {
 	t.Pump()
 }
 
+// DragFiles simulates files from the OS file manager dragged in at the
+// first point, moved through the others, and dropped at the last (with
+// drop false they leave the window instead).
+func (t *Tester) DragFiles(paths []string, drop bool, points ...geom.Offset) {
+	if len(points) == 0 {
+		return
+	}
+	t.Build.FileDragEnter(paths, points[0])
+	t.Pump()
+	for _, p := range points[1:] {
+		t.Build.FileDragMove(p)
+		t.Pump()
+	}
+	if drop {
+		t.DropFiles(paths, points[len(points)-1].X, points[len(points)-1].Y)
+	} else {
+		t.Build.FileDragLeave()
+		t.Pump()
+	}
+}
+
+// DropFiles simulates files dropped from the OS file manager at (x, y).
+func (t *Tester) DropFiles(paths []string, x, y float32) bool {
+	ok := t.Build.DropFiles(paths, geom.Pt(x, y))
+	t.Pump()
+	return ok
+}
+
 // Type sends text input to the focused widget.
 func (t *Tester) Type(s string) {
 	t.Build.Focus().HandleText(s)
@@ -194,6 +242,10 @@ func (t *Tester) Texts() []string {
 	var walk func(ro render.RenderObject)
 	walk = func(ro render.RenderObject) {
 		switch r := ro.(type) {
+		case *render.RenderOffstage:
+			if r.Offstage {
+				return
+			}
 		case *render.RenderParagraph:
 			out = append(out, r.Text())
 		case *render.RenderEditable:
@@ -219,6 +271,10 @@ func (t *Tester) Find(s string) (geom.Rect, bool) {
 		switch x := ro.(type) {
 		case *render.RenderOpacity:
 			if x.Opacity <= 0 {
+				return
+			}
+		case *render.RenderOffstage:
+			if x.Offstage {
 				return
 			}
 		case *render.RenderSizeFactor, *render.RenderClipRect, *render.RenderViewport:
@@ -368,4 +424,23 @@ func (t *Tester) Close() {
 		t.inst.Release()
 		t.renderer = nil
 	}
+}
+
+// Semantics returns every annotated part of the screen (see
+// widgets.SemanticsTree), depth first.
+func (t *Tester) Semantics() []*widgets.SemanticsNode {
+	t.Pump()
+	return widgets.FlattenSemantics(widgets.SemanticsTree(t.Pipeline.Root()))
+}
+
+// FindSemantics returns the topmost node with the given role ("" = any)
+// and label.
+func (t *Tester) FindSemantics(role, label string) (*widgets.SemanticsNode, bool) {
+	var found *widgets.SemanticsNode
+	for _, n := range t.Semantics() {
+		if (role == "" || n.Role == role) && n.Label == label {
+			found = n
+		}
+	}
+	return found, found != nil
 }

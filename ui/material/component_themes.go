@@ -316,6 +316,19 @@ type TabBarTheme struct {
 	Height               *float32
 }
 
+// DockTheme styles Dock: its tab strips, splits and drop hints.
+type DockTheme struct {
+	TabBarColor     geom.Color
+	TabColor        geom.Color // inactive tabs
+	ActiveTabColor  geom.Color
+	IndicatorColor  geom.Color // line under the active tab
+	DividerColor    geom.Color // between groups
+	DropHintColor   geom.Color // where a dragged tab will land
+	TextStyle       text.Style
+	ActiveTextStyle text.Style
+	TabHeight       *float32
+}
+
 // BottomAppBarTheme styles BottomAppBar.
 type BottomAppBarTheme struct {
 	Color     geom.Color
@@ -372,6 +385,41 @@ type SnackBarTheme struct {
 	MaxWidth         *float32
 }
 
+// ToastTheme styles ShowToast notifications.
+type ToastTheme struct {
+	BackgroundColor geom.Color
+	TitleStyle      text.Style
+	MessageStyle    text.Style
+	ActionColor     geom.Color
+	CloseIconColor  geom.Color
+	InfoColor       geom.Color // the kind's icon and accent
+	SuccessColor    geom.Color
+	WarningColor    geom.Color
+	ErrorColor      geom.Color
+	ProgressColor   geom.Color
+	ShadowColor     geom.Color
+	Elevation       *int
+	Radius          *float32
+	Width           *float32
+	// Duration is how long toasts stay (default 5s).
+	Duration time.Duration
+}
+
+// HoverCardTheme styles HoverCard and RichTooltip.
+type HoverCardTheme struct {
+	BackgroundColor geom.Color
+	TitleStyle      text.Style
+	TextStyle       text.Style
+	ActionColor     geom.Color
+	ShadowColor     geom.Color
+	Elevation       *int
+	Radius          *float32
+	Padding         *geom.EdgeInsets
+	MaxWidth        *float32
+	// WaitDuration is the hover time before it shows (default 500ms).
+	WaitDuration time.Duration
+}
+
 // MenuTheme styles menus: ShowMenu, PopupMenuButton, DropdownMenu.
 type MenuTheme struct {
 	BackgroundColor geom.Color
@@ -382,6 +430,32 @@ type MenuTheme struct {
 	TextStyle       text.Style
 	Elevation       *int
 	Radius          *float32
+	ItemHeight      *float32
+}
+
+// MenuBarTheme styles MenuBar (its menus use MenuTheme).
+type MenuBarTheme struct {
+	BackgroundColor geom.Color
+	HighlightColor  geom.Color // the open or hovered title
+	TextStyle       text.Style
+	ItemPadding     *geom.EdgeInsets
+	Height          *float32
+	Radius          *float32
+}
+
+// QuickPickTheme styles QuickPick and the command palette.
+type QuickPickTheme struct {
+	BackgroundColor geom.Color
+	SelectedColor   geom.Color // the highlighted item
+	MatchColor      geom.Color // matched characters of an item
+	ShadowColor     geom.Color
+	TextStyle       text.Style // item labels
+	DetailStyle     text.Style // item details
+	HintStyle       text.Style // right-aligned hints (shortcuts)
+	InputStyle      text.Style // the query
+	Elevation       *int
+	Radius          *float32
+	Width           *float32
 	ItemHeight      *float32
 }
 

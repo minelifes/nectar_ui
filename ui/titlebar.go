@@ -5,8 +5,8 @@ import (
 	"runtime"
 	"sync"
 
-	"github.com/gogpu/gogpu"
 	"github.com/gogpu/gpucontext"
+	"github.com/minelifes/nectar_ui/internal/gogpu"
 
 	"github.com/minelifes/nectar_ui/ui/geom"
 	"github.com/minelifes/nectar_ui/ui/render"

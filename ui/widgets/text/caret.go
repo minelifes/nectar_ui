@@ -9,9 +9,19 @@ import (
 // text: stops[i] is the pen position before the i-th rune, and the last
 // entry is the full advance width. offsets[i] is the matching byte offset.
 // It uses the same shaping as Layout, so carets line up with drawn glyphs.
+//
+// For right-to-left or mixed text the stops aren't in ascending order (each
+// sits at its character's leading edge).
 func CaretStops(line string, style Style) (stops []float32, offsets []int) {
 	style = style.Resolved()
-	cl := shape(style.Font, style.Size, style.LetterSpacing, line, 0, nil)
+	if needsComplex([]run{{text: line, style: style}}, 0, len(line)) {
+		p := Layout(line, style, Options{})
+		if len(p.Lines) == 0 {
+			return []float32{0}, []int{len(line)}
+		}
+		return p.Lines[0].Stops, p.Lines[0].Offsets
+	}
+	cl := shape(style, line, 0, nil)
 	stops = make([]float32, 0, len(cl)+1)
 	offsets = make([]int, 0, len(cl)+1)
 	var x float32
@@ -70,7 +80,7 @@ func LineBreaks(line string, style Style, maxW float32) []int {
 		return breaks
 	}
 	style = style.Resolved()
-	cl := shape(style.Font, style.Size, style.LetterSpacing, line, 0, nil)
+	cl := shape(style, line, 0, nil)
 	for start := 0; start < len(cl); {
 		_, next := breakLine(cl[start:], maxW)
 		if next <= 0 {

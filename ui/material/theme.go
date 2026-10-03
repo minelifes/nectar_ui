@@ -208,9 +208,11 @@ type Theme struct {
 	Badge         BadgeTheme
 	Avatar        CircleAvatarTheme
 	Tooltip       TooltipTheme
+	HoverCard     HoverCardTheme
 	Banner        BannerTheme
 	Progress      ProgressIndicatorTheme
 	SnackBar      SnackBarTheme
+	Toast         ToastTheme
 	Dialog        DialogTheme
 	BottomSheet   BottomSheetTheme
 	SideSheet     SideSheetTheme
@@ -225,6 +227,8 @@ type Theme struct {
 	Input        InputDecorationTheme
 	SearchBar    SearchBarTheme
 	Menu         MenuTheme
+	MenuBar      MenuBarTheme
+	QuickPick    QuickPickTheme
 	DropdownMenu DropdownMenuTheme
 	DatePicker   DatePickerTheme
 	TimePicker   TimePickerTheme
@@ -235,6 +239,7 @@ type Theme struct {
 	NavigationRail   NavigationRailTheme
 	NavigationDrawer NavigationDrawerTheme
 	TabBar           TabBarTheme
+	Dock             DockTheme
 	BottomAppBar     BottomAppBarTheme
 	TitleBar         TitleBarTheme
 

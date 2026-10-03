@@ -23,4 +23,7 @@ var (
 	iconEdit         = icons.Edit
 	iconCalendar     = icons.CalendarToday
 	iconSchedule     = icons.Schedule
+	iconInfo         = icons.Info
+	iconWarning      = icons.Warning
+	iconCheckCircle  = icons.CheckCircle
 )

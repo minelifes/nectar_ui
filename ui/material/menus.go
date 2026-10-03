@@ -19,6 +19,8 @@ type MenuItem struct {
 	Disabled bool
 	Divider  bool // draws a divider instead of an item
 	Selected bool
+	Checked  bool       // a check mark in the leading slot
+	Submenu  []MenuItem // opens beside the item (hover, tap or →)
 }
 
 // MenuOptions configure ShowMenu.
@@ -26,14 +28,60 @@ type MenuOptions struct {
 	Width float32 // 0 = fit content (112..280)
 	// Above opens the menu above the anchor when there's room.
 	Above bool
+	// OnClose is called when the menu closes (picked, dismissed).
+	OnClose func()
+
+	side   bool        // open beside the anchor (submenus)
+	parent *menuHandle // the menu a submenu belongs to
+	bar    *menuBarLink
+}
+
+// menuHandle is one open menu (a submenu has a parent).
+type menuHandle struct {
+	entry         *w.OverlayEntry
+	parent, child *menuHandle
+	node          *w.FocusNode
+	closed        bool
+	onClose       func()
+	bar           *menuBarLink
+	focusFirst    bool // highlight the first item (opened by keyboard)
+}
+
+// close closes h and its submenus; focus returns to the parent menu.
+func (h *menuHandle) close() {
+	if h == nil || h.closed {
+		return
+	}
+	h.closed = true
+	h.child.close()
+	h.entry.Remove()
+	if h.parent != nil {
+		h.parent.child = nil
+		h.parent.node.RequestFocus()
+	} else if h.onClose != nil {
+		h.onClose()
+	}
+}
+
+// closeAll closes the whole menu chain.
+func (h *menuHandle) closeAll() {
+	for h.parent != nil {
+		h = h.parent
+	}
+	h.close()
 }
 
 // ShowMenu opens a menu anchored below anchor (window coordinates). It
-// closes on selection, outside tap or Escape.
+// closes on selection, outside tap or Escape. ↑/↓ move between items,
+// Enter picks, → opens a submenu and ← closes it.
 func ShowMenu(ctx w.BuildContext, anchor geom.Rect, items []MenuItem, opts MenuOptions) {
+	openMenu(ctx, anchor, items, opts)
+}
+
+func openMenu(ctx w.BuildContext, anchor geom.Rect, items []MenuItem, opts MenuOptions) *menuHandle {
 	ov := w.OverlayOf(ctx)
 	if ov == nil {
-		return
+		return nil
 	}
 	th := ThemeOf(ctx)
 	mt := th.Menu
@@ -47,15 +95,18 @@ func ShowMenu(ctx w.BuildContext, anchor geom.Rect, items []MenuItem, opts MenuO
 				continue
 			}
 			iw := text.Layout(it.Label, ts, text.Options{}).Width + 24
-			if it.Leading != nil {
+			if it.Leading != nil || it.Checked {
 				iw += 36
 			}
 			if it.Trailing != "" {
 				iw += text.Layout(it.Trailing, ts, text.Options{}).Width + 24
 			}
+			if len(it.Submenu) > 0 {
+				iw += 36
+			}
 			width = max(width, iw)
 		}
-		width = min(max(width, 112), 280)
+		width = min(max(width, 112), 320)
 	}
 	h := float32(16)
 	for _, it := range items {
@@ -65,57 +116,198 @@ func ShowMenu(ctx w.BuildContext, anchor geom.Rect, items []MenuItem, opts MenuO
 			h += itemH
 		}
 	}
-	x := min(max(anchor.X, 8), win.W-width-8)
-	y := anchor.Bottom()
-	if opts.Above || y+h > win.H-8 {
-		if anchor.Y-h >= 8 {
-			y = anchor.Y - h
-		} else {
-			y = max(8, win.H-h-8)
+	var x, y float32
+	if opts.side {
+		// Beside the anchor (a submenu item), flipped left if no room.
+		x, y = anchor.Right(), anchor.Y-8
+		if x+width > win.W-8 {
+			x = anchor.X - width
+		}
+		x = min(max(x, 8), win.W-width-8)
+		y = min(max(y, 8), max(8, win.H-h-8))
+	} else {
+		x = min(max(anchor.X, 8), win.W-width-8)
+		y = anchor.Bottom()
+		if opts.Above || y+h > win.H-8 {
+			if anchor.Y-h >= 8 {
+				y = anchor.Y - h
+			} else {
+				y = max(8, win.H-h-8)
+			}
 		}
 	}
-	var entry *w.OverlayEntry
-	closeMenu := func() {
-		if entry != nil {
-			entry.Remove()
-			entry = nil
-		}
+	hd := &menuHandle{parent: opts.parent, node: &w.FocusNode{}, onClose: opts.OnClose, bar: opts.bar}
+	if hd.parent != nil {
+		hd.parent.child.close()
+		hd.parent.child = hd
+		hd.bar = hd.parent.bar
 	}
-	entry = &w.OverlayEntry{Builder: func(ctx w.BuildContext) w.Widget {
-		return w.Stack{Expand: true, Children: []w.Widget{
-			w.PositionedFill(w.GestureDetector{OnTapDown: func(w.TapDetails) { closeMenu() }, Child: w.AbsorbPointer{}}),
-			w.Positioned{Left: w.At(x), Top: w.At(y), Width: w.At(width),
-				Child: menuPanel{items: items, close: closeMenu}},
-		}}
+	panel := w.Positioned{Left: w.At(x), Top: w.At(y), Width: w.At(width),
+		Child: menuPanel{items: items, handle: hd}}
+	hd.entry = &w.OverlayEntry{Builder: func(ctx w.BuildContext) w.Widget {
+		if hd.parent != nil {
+			return w.Stack{Expand: true, Children: []w.Widget{panel}}
+		}
+		// The root menu has the barrier: a tap outside closes everything.
+		barrier := w.Widget(w.GestureDetector{OnTapDown: func(d w.TapDetails) {
+			if b := hd.bar; b != nil && b.tapAt(d.Global) {
+				return
+			}
+			hd.closeAll()
+		}, Child: w.AbsorbPointer{}})
+		if b := hd.bar; b != nil {
+			barrier = w.MouseRegion{OnHover: func(e w.PointerEvent) { b.hoverAt(e.Position) }, Child: barrier}
+		}
+		return w.Stack{Expand: true, Children: []w.Widget{w.PositionedFill(barrier), panel}}
 	}}
-	ov.Insert(entry)
+	ov.Insert(hd.entry)
+	return hd
 }
 
 type menuPanel struct {
-	items []MenuItem
-	close func()
+	items  []MenuItem
+	handle *menuHandle
 }
 
 func (menuPanel) CreateState() w.State { return &menuPanelState{} }
 
 type menuPanelState struct {
 	w.StateBase
-	t *w.Animated
+	t   *w.Animated
+	hi  int // highlighted item (-1 = none)
+	ctx []w.BuildContext
 }
 
 func (s *menuPanelState) InitState() {
+	s.hi = -1
 	s.t = w.NewAnimated(s, 150*time.Millisecond, w.EmphasizedDecelerate, 0)
 	s.t.Set(1)
 }
 
+func (s *menuPanelState) panel() menuPanel { return w.WidgetOf[menuPanel](s) }
+
+func selectable(it MenuItem) bool { return !it.Divider && !it.Disabled }
+
+// step moves the highlight to the next selectable item in direction d.
+func (s *menuPanelState) step(d int) {
+	items := s.panel().items
+	n := len(items)
+	if n == 0 {
+		return
+	}
+	i := s.hi
+	if i < 0 && d < 0 {
+		i = n
+	}
+	for k := 0; k < n; k++ {
+		i = ((i+d)%n + n) % n
+		if selectable(items[i]) {
+			s.SetState(func() { s.hi = i })
+			return
+		}
+	}
+}
+
+func (s *menuPanelState) highlight(i int) {
+	if s.hi != i {
+		s.SetState(func() { s.hi = i })
+	}
+	m := s.panel()
+	if i >= 0 && i < len(m.items) && len(m.items[i].Submenu) > 0 && !m.items[i].Disabled {
+		s.openSub(i, false)
+	} else if m.handle.child != nil {
+		m.handle.child.close()
+	}
+}
+
+// openSub opens item i's submenu (focused: highlight its first item).
+func (s *menuPanelState) openSub(i int, focus bool) {
+	m := s.panel()
+	if i >= len(s.ctx) || s.ctx[i] == nil {
+		return
+	}
+	sub := openMenu(s.ctx[i], anchorRect(s.ctx[i]), m.items[i].Submenu, MenuOptions{side: true, parent: m.handle})
+	if sub != nil && focus {
+		sub.focusFirst = true
+	}
+}
+
+func (s *menuPanelState) activate(i int) {
+	m := s.panel()
+	if i < 0 || i >= len(m.items) || !selectable(m.items[i]) {
+		return
+	}
+	it := m.items[i]
+	if len(it.Submenu) > 0 {
+		s.openSub(i, true)
+		return
+	}
+	m.handle.closeAll()
+	if it.OnTap != nil {
+		it.OnTap()
+	}
+}
+
+func (s *menuPanelState) onKey(e w.KeyEvent) bool {
+	m := s.panel()
+	switch e.Key {
+	case w.KeyEscape:
+		if m.handle.parent != nil {
+			m.handle.close()
+		} else {
+			m.handle.closeAll()
+		}
+	case w.KeyDown:
+		s.step(1)
+	case w.KeyUp:
+		s.step(-1)
+	case w.KeyHome:
+		s.hi = -1
+		s.step(1)
+	case w.KeyEnd:
+		s.hi = 0
+		s.step(-1)
+	case w.KeyEnter, w.KeySpace:
+		s.activate(s.hi)
+	case w.KeyRight:
+		if s.hi >= 0 && s.hi < len(m.items) && len(m.items[s.hi].Submenu) > 0 && !m.items[s.hi].Disabled {
+			s.openSub(s.hi, true)
+		} else if b := m.handle.bar; b != nil {
+			b.move(1)
+		}
+	case w.KeyLeft:
+		if m.handle.parent != nil {
+			m.handle.close()
+		} else if b := m.handle.bar; b != nil {
+			b.move(-1)
+		}
+	default:
+		return false
+	}
+	return true
+}
+
 func (s *menuPanelState) Build(ctx w.BuildContext) w.Widget {
-	m := w.WidgetOf[menuPanel](s)
+	m := s.panel()
+	if m.handle.focusFirst && s.hi < 0 {
+		m.handle.focusFirst = false
+		s.hi = -1
+		for i, it := range m.items {
+			if selectable(it) {
+				s.hi = i
+				break
+			}
+		}
+	}
 	th := ThemeOf(ctx)
 	sc := th.Scheme
 	mt := th.Menu
 	itemH := pickF(mt.ItemHeight, 48)
 	rows := []w.Widget{}
-	for _, it := range m.items {
+	if len(s.ctx) != len(m.items) {
+		s.ctx = make([]w.BuildContext, len(m.items))
+	}
+	for i, it := range m.items {
 		if it.Divider {
 			rows = append(rows, w.Padding{Padding: geom.InsetsHV(0, 8), Child: Divider{}})
 			continue
@@ -126,39 +318,46 @@ func (s *menuPanelState) Build(ctx w.BuildContext) w.Widget {
 			ic = fg
 		}
 		kids := []w.Widget{}
-		if it.Leading != nil {
+		switch {
+		case it.Leading != nil:
 			kids = append(kids, w.Icon{Icon: it.Leading, Size: 24, Color: ic})
+		case it.Checked:
+			kids = append(kids, w.Icon{Icon: iconCheck, Size: 24, Color: ic})
 		}
 		kids = append(kids, w.Expanded{Child: w.Text{Text: it.Label, Style: pickTC(mt.TextStyle, th.Text.LabelLarge, fg), MaxLines: 1, Ellipsis: true}})
 		if it.Trailing != "" {
 			kids = append(kids, w.Text{Text: it.Trailing, Style: pickTC(mt.TextStyle, th.Text.LabelLarge, ic)})
 		}
+		if len(it.Submenu) > 0 {
+			kids = append(kids, w.Icon{Icon: iconChevronRight, Size: 20, Color: ic})
+		}
 		var tap func()
 		if !it.Disabled {
-			it := it
-			tap = func() {
-				m.close()
-				if it.OnTap != nil {
-					it.OnTap()
-				}
-			}
+			i := i
+			tap = func() { s.activate(i) }
 		}
 		bg := geom.Transparent
-		if it.Selected {
+		switch {
+		case it.Selected:
 			bg = pick(mt.SelectedColor, sc.OnSurface.WithAlpha(0.10))
+		case i == s.hi && !it.Disabled:
+			bg = sc.OnSurface.WithAlpha(0.08)
 		}
-		rows = append(rows, InkSurface{OnTap: tap, Color: bg, ContentColor: sc.OnSurface, Disabled: it.Disabled,
-			Child: w.SizedBox{Height: itemH, Child: w.Padding{Padding: geom.InsetsHV(12, 0),
-				Child: w.Row{Cross: w.CrossCenter, Spacing: 12, Children: kids}}}})
+		i := i
+		rows = append(rows, w.Builder{Builder: func(ctx w.BuildContext) w.Widget {
+			s.ctx[i] = ctx
+			return w.Semantics{SemanticsData: w.SemanticsData{Role: "menuitem", Label: it.Label, Hint: it.Trailing, Checkable: it.Checked, Checked: it.Checked,
+				Selected: it.Selected, Disabled: it.Disabled, OnTap: tap}, Child: w.MouseRegion{OnEnter: func(w.PointerEvent) {
+				if !it.Disabled {
+					s.highlight(i)
+				}
+			}, Child: InkSurface{OnTap: tap, Color: bg, ContentColor: sc.OnSurface, Disabled: it.Disabled, NoFocus: true,
+				Child: w.SizedBox{Height: itemH, Child: w.Padding{Padding: geom.InsetsHV(12, 0),
+					Child: w.Row{Cross: w.CrossCenter, Spacing: 12, Children: kids}}}}}}
+		}})
 	}
 	t := s.t.Value()
-	return w.Focus{Autofocus: true, OnKey: func(e w.KeyEvent) bool {
-		if e.Key == w.KeyEscape {
-			m.close()
-			return true
-		}
-		return false
-	}, Child: w.Opacity{Opacity: t, Child: w.SizeTransition{Factor: 0.6 + 0.4*t,
+	return w.Focus{Node: m.handle.node, Autofocus: true, OnKey: s.onKey, Child: w.Opacity{Opacity: t, Child: w.SizeTransition{Factor: 0.6 + 0.4*t,
 		Child: w.AbsorbPointer{Child: Surface{Color: pick(mt.BackgroundColor, sc.SurfaceContainer), Radius: pickF(mt.Radius, CornerExtraSmall),
 			Elevation: pickI(mt.Elevation, 2), ShadowColor: mt.ShadowColor,
 			Child: w.Padding{Padding: geom.InsetsHV(0, 8), Child: w.Column{Cross: w.CrossStretch, ShrinkMain: true, Children: rows}}}}}}}

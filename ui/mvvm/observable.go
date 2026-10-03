@@ -113,6 +113,10 @@ func (p *Property[T]) Get() T {
 	return p.v
 }
 
+// Watch is Watch(ctx, p): the value, rebuilding the calling widget when it
+// changes.
+func (p *Property[T]) Watch(ctx widgets.BuildContext) T { return Watch[T](ctx, p) }
+
 // Set stores v and notifies subscribers if it differs from the current
 // value. Its signature fits event callbacks: OnChanged: vm.Enabled.Set.
 func (p *Property[T]) Set(v T) { p.Update(func(T) T { return v }) }
@@ -175,6 +179,10 @@ func (c *Computed[T]) Get() T {
 	defer c.mu.Unlock()
 	return c.v
 }
+
+// Watch is Watch(ctx, c): the value, rebuilding the calling widget when it
+// changes.
+func (c *Computed[T]) Watch(ctx widgets.BuildContext) T { return Watch[T](ctx, c) }
 
 // Dispose unsubscribes from the sources; the value freezes.
 func (c *Computed[T]) Dispose() {

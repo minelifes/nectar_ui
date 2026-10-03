@@ -3,6 +3,8 @@ package mvvm
 import (
 	"slices"
 	"sync"
+
+	"github.com/minelifes/nectar_ui/ui/widgets"
 )
 
 // List is an observable slice: every mutation notifies subscribers once.
@@ -26,6 +28,10 @@ func (l *List[T]) Get() []T {
 	defer l.mu.RUnlock()
 	return l.items
 }
+
+// Watch is Watch(ctx, l): the items, rebuilding the calling widget when
+// the list changes.
+func (l *List[T]) Watch(ctx widgets.BuildContext) []T { return Watch[[]T](ctx, l) }
 
 // Len returns the number of items.
 func (l *List[T]) Len() int {

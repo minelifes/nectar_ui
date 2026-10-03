@@ -3,6 +3,7 @@ package material
 import (
 	"fmt"
 	"math"
+	"strconv"
 	"time"
 
 	"github.com/minelifes/nectar_ui/ui/geom"
@@ -20,6 +21,8 @@ type Checkbox struct {
 	Indeterminate bool // shows a dash (tristate)
 	Error         bool
 	OnChanged     func(bool) // nil = disabled
+	// SemanticLabel names the checkbox for assistive technology and tests.
+	SemanticLabel string
 	// Style overrides Theme.Checkbox.
 	Style CheckboxTheme
 }
@@ -40,7 +43,7 @@ func (s *checkboxState) InitState() {
 	s.on = w.NewAnimated(s, 120*time.Millisecond, w.Standard, v)
 }
 
-func (s *checkboxState) Build(ctx w.BuildContext) w.Widget {
+func (s *checkboxState) build(ctx w.BuildContext) w.Widget {
 	cb := w.WidgetOf[Checkbox](s)
 	th := ThemeOf(ctx)
 	sc := th.Scheme
@@ -99,6 +102,8 @@ type Radio[T comparable] struct {
 	Value      T
 	GroupValue T
 	OnChanged  func(T) // nil = disabled
+	// SemanticLabel names the option for assistive technology and tests.
+	SemanticLabel string
 	// Style overrides Theme.Radio.
 	Style RadioTheme
 }
@@ -119,7 +124,7 @@ func (s *radioState[T]) InitState() {
 	s.on = w.NewAnimated(s, 150*time.Millisecond, w.Standard, v)
 }
 
-func (s *radioState[T]) Build(ctx w.BuildContext) w.Widget {
+func (s *radioState[T]) build(ctx w.BuildContext) w.Widget {
 	r := w.WidgetOf[Radio[T]](s)
 	th := ThemeOf(ctx)
 	sc := th.Scheme
@@ -164,6 +169,8 @@ func (s *radioState[T]) Build(ctx w.BuildContext) w.Widget {
 type Switch struct {
 	Value     bool
 	OnChanged func(bool) // nil = disabled
+	// SemanticLabel names the switch for assistive technology and tests.
+	SemanticLabel string
 	// ThumbIcon shows an icon (e.g. a check) in the thumb when on.
 	ThumbIcon bool
 	// Style overrides Theme.Switch.
@@ -190,7 +197,7 @@ func (s *switchState) InitState() {
 	s.grow = w.NewAnimated(s, 100*time.Millisecond, w.Standard, 0)
 }
 
-func (s *switchState) Build(ctx w.BuildContext) w.Widget {
+func (s *switchState) build(ctx w.BuildContext) w.Widget {
 	sw := w.WidgetOf[Switch](s)
 	th := ThemeOf(ctx)
 	sc := th.Scheme
@@ -292,6 +299,8 @@ type Slider struct {
 	Label           func(v float32) string // value bubble while dragging (nil = "%.0f" with divisions)
 	OnChanged       func(float32)          // nil = disabled
 	OnChangeEnd     func(float32)
+	// SemanticLabel names the slider for assistive technology and tests.
+	SemanticLabel string
 	// Style overrides Theme.Slider.
 	Style SliderTheme
 }
@@ -325,7 +334,7 @@ func valueAt(x, width, lo, hi float32, div int) float32 {
 	return lo + t*(hi-lo)
 }
 
-func (s *sliderState) Build(ctx w.BuildContext) w.Widget {
+func (s *sliderState) build(ctx w.BuildContext) w.Widget {
 	sl := w.WidgetOf[Slider](s)
 	th := ThemeOf(ctx)
 	st := merge(th.Slider, sl.Style)
@@ -533,4 +542,40 @@ func abs32(v float32) float32 {
 		return -v
 	}
 	return v
+}
+
+func (s *checkboxState) Build(ctx w.BuildContext) w.Widget {
+	cb := w.WidgetOf[Checkbox](s)
+	var tap func()
+	if cb.OnChanged != nil {
+		tap = func() { cb.OnChanged(!cb.Value) }
+	}
+	return w.Semantics{SemanticsData: w.SemanticsData{Role: "checkbox", Label: cb.SemanticLabel, Checkable: true, Checked: cb.Value,
+		Disabled: cb.OnChanged == nil, OnTap: tap}, Child: s.build(ctx)}
+}
+
+func (s *radioState[T]) Build(ctx w.BuildContext) w.Widget {
+	r := w.WidgetOf[Radio[T]](s)
+	var tap func()
+	if r.OnChanged != nil {
+		tap = func() { r.OnChanged(r.Value) }
+	}
+	return w.Semantics{SemanticsData: w.SemanticsData{Role: "radio", Label: r.SemanticLabel, Checkable: true, Checked: r.Value == r.GroupValue,
+		Disabled: r.OnChanged == nil, OnTap: tap}, Child: s.build(ctx)}
+}
+
+func (s *switchState) Build(ctx w.BuildContext) w.Widget {
+	sw := w.WidgetOf[Switch](s)
+	var tap func()
+	if sw.OnChanged != nil {
+		tap = func() { sw.OnChanged(!sw.Value) }
+	}
+	return w.Semantics{SemanticsData: w.SemanticsData{Role: "switch", Label: sw.SemanticLabel, Checkable: true, Checked: sw.Value,
+		Disabled: sw.OnChanged == nil, OnTap: tap}, Child: s.build(ctx)}
+}
+
+func (s *sliderState) Build(ctx w.BuildContext) w.Widget {
+	sl := w.WidgetOf[Slider](s)
+	return w.Semantics{SemanticsData: w.SemanticsData{Role: "slider", Label: sl.SemanticLabel, Value: strconv.FormatFloat(float64(sl.Value), 'g', -1, 32),
+		Disabled: sl.OnChanged == nil}, Child: s.build(ctx)}
 }

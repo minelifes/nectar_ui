@@ -6,11 +6,15 @@ package ui
 
 import (
 	"log/slog"
+	"sync"
+	"time"
 
-	"github.com/gogpu/gogpu"
+	"github.com/minelifes/nectar_ui/internal/gogpu"
 
+	"github.com/minelifes/nectar_ui/ui/commands"
 	"github.com/minelifes/nectar_ui/ui/geom"
 	"github.com/minelifes/nectar_ui/ui/gpu"
+	"github.com/minelifes/nectar_ui/ui/menu"
 	"github.com/minelifes/nectar_ui/ui/render"
 	"github.com/minelifes/nectar_ui/ui/resources"
 	"github.com/minelifes/nectar_ui/ui/widgets"
@@ -32,6 +36,13 @@ type App struct {
 	imeEnabled bool
 	imePos     [2]int
 	hits       *hitTester // frameless title bars
+	a11y       *accessibility
+
+	nativeMenus []menu.Menu
+	nativeHost  *commands.Host
+
+	winMu   sync.Mutex
+	windows []*secondaryWindow
 }
 
 // NewApp creates an application with the given config.
@@ -41,6 +52,7 @@ func NewApp(config Config) *App {
 
 // Run mounts root and blocks until the window is closed.
 func (a *App) Run(root widgets.Widget) error {
+	saved, restore := a.restoreWindowState()
 	cfg := gogpu.DefaultConfig().
 		WithTitle(a.config.Title).
 		WithSize(a.config.Width, a.config.Height)
@@ -61,20 +73,40 @@ func (a *App) Run(root widgets.Widget) error {
 	a.pipeline.OnNeedVisualUpdate = a.gpuApp.RequestRedraw
 
 	a.window = newNativeWindow(a.gpuApp, a.config)
+	a.window.post = a.buildOwner.Post
 	a.buildOwner.Window = a.window
+	if a.nativeMenus != nil {
+		a.window.do(func(g *gogpu.App) { a.applyNativeMenu(g) })
+	}
 	// The app's resources: its own mounts over the global ones.
 	a.resources = resources.NewSet(resources.Global())
 	for _, m := range a.config.mounts {
 		a.resources.Mount(m.prefix, m.fsys)
 	}
 	a.buildOwner.Resources = a.resources
+	a.buildOwner.OpenWindow = a.openFromWidgets
 	a.setupDev()
+	if restore {
+		switch {
+		case saved.Fullscreen:
+			a.window.SetFullscreen(true)
+		case saved.Maximized:
+			a.window.Maximize()
+		}
+	}
 	// Window requests from widgets are applied here, on the main thread.
 	a.gpuApp.OnUpdate(func(float64) { a.window.apply() })
 
 	a.root = widgets.Mount(root, a.config.Background, a.buildOwner, a.pipeline)
 
 	a.setupInput()
+	// Files dragged from the OS file manager, routed to the window they're
+	// over (positions are logical pixels).
+	a.gpuApp.OnFileDrag(a.fileDrag)
+	if !a.config.NoAccessibility {
+		g := a.gpuApp
+		a.a11y = &accessibility{owner: a.buildOwner, publish: g.SetAccessibilityTree, redraw: g.RequestRedraw}
+	}
 	a.gpuApp.OnDraw(a.frame)
 	a.gpuApp.OnClose(a.close)
 	return a.gpuApp.Run()
@@ -106,42 +138,73 @@ func (a *App) RequestRedraw() {
 
 // frame is one iteration of the rendering pipeline.
 func (a *App) frame(dc *gogpu.Context) {
-	if a.renderer == nil {
-		dp := a.gpuApp.DeviceProvider()
-		if dp == nil {
-			return
-		}
-		r, err := gpu.New(dp.Device(), dp.SurfaceFormat())
-		if err != nil {
-			slog.Error("nectar-ui: renderer init failed", "err", err)
-			return
-		}
-		a.renderer = r
-	}
-
-	fbW, fbH := dc.FramebufferSize()
-	if fbW <= 0 || fbH <= 0 {
+	if !a.ensureRenderer() {
 		return
 	}
-	scale := float32(dc.ScaleFactor())
-	if scale <= 0 {
-		scale = 1
+	fbW, fbH, scale, window, ok := frameSize(dc)
+	if !ok {
+		return
 	}
-	// Logical size derived from the framebuffer so both always agree.
-	window := geom.Size{W: float32(fbW) / scale, H: float32(fbH) / scale}
 	a.window.resized(int(window.W+0.5), int(window.H+0.5))
 
 	// 0. input  1. build  2. layout  3. paint
 	// (the OS hit test for frameless title bars reads the tree: keep it out)
 	a.hits.mu.Lock()
 	a.processInput()
+	t0 := time.Now()
 	a.buildOwner.FlushBuild()
+	t1 := time.Now()
 	a.pipeline.FlushLayout(window)
+	t2 := time.Now()
 	canvas := a.pipeline.FlushPaint(window)
+	a.buildOwner.RecordFrame(t1.Sub(t0), t2.Sub(t1), time.Since(t2), len(canvas.Commands))
 	a.hits.mu.Unlock()
 	a.syncIME(scale)
+	a.a11y.update(a.pipeline.Root(), a.window.Title(), window)
 
 	// 4. GPU
+	a.draw(dc, fbW, fbH, scale, a.config.Background, canvas)
+	// Keep frames coming while something animates.
+	if a.buildOwner.HasActiveTickers() {
+		a.gpuApp.RequestRedraw()
+	}
+}
+
+// ensureRenderer creates the GPU renderer (shared by all windows) on the
+// first frame.
+func (a *App) ensureRenderer() bool {
+	if a.renderer != nil {
+		return true
+	}
+	dp := a.gpuApp.DeviceProvider()
+	if dp == nil {
+		return false
+	}
+	r, err := gpu.New(dp.Device(), dp.SurfaceFormat())
+	if err != nil {
+		slog.Error("nectar-ui: renderer init failed", "err", err)
+		return false
+	}
+	a.renderer = r
+	return true
+}
+
+// frameSize returns a frame's framebuffer size, scale and logical size.
+func frameSize(dc *gogpu.Context) (fbW, fbH int, scale float32, window geom.Size, ok bool) {
+	fbW, fbH = dc.FramebufferSize()
+	if fbW <= 0 || fbH <= 0 {
+		return 0, 0, 0, geom.Size{}, false
+	}
+	scale = float32(dc.ScaleFactor())
+	if scale <= 0 {
+		scale = 1
+	}
+	// Logical size derived from the framebuffer so both always agree.
+	return fbW, fbH, scale, geom.Size{W: float32(fbW) / scale, H: float32(fbH) / scale}, true
+}
+
+// draw renders a display list into the frame's surface.
+func (a *App) draw(dc *gogpu.Context, fbW, fbH int, scale float32, bg geom.Color, canvas *render.Canvas) {
 	view := dc.SurfaceView()
 	enc := dc.CommandEncoder()
 	if view == nil || enc == nil {
@@ -150,19 +213,43 @@ func (a *App) frame(dc *gogpu.Context) {
 	err := a.renderer.Draw(gpu.Frame{
 		Encoder: enc, Target: view,
 		Width: uint32(fbW), Height: uint32(fbH), Scale: scale,
-		Clear:    a.config.Background,
+		Clear:    bg,
 		Commands: canvas.Commands,
 	})
 	if err != nil {
 		slog.Error("nectar-ui: draw failed", "err", err)
 	}
-	// Keep frames coming while something animates.
-	if a.buildOwner.HasActiveTickers() {
-		a.gpuApp.RequestRedraw()
+}
+
+// fileDrag delivers one step of an OS file drag to the tree of the window
+// it's over (on that tree's UI goroutine).
+func (a *App) fileDrag(e gogpu.FileDragEvent) {
+	owner := a.buildOwner
+	a.winMu.Lock()
+	for _, sw := range a.windows {
+		if sw.gw.ID() == e.WindowID {
+			owner = sw.owner
+		}
 	}
+	a.winMu.Unlock()
+	pos := geom.Offset{X: float32(e.X), Y: float32(e.Y)}
+	owner.Post(func() {
+		switch e.Kind {
+		case gogpu.FileDragEnter:
+			owner.FileDragEnter(e.Paths, pos)
+		case gogpu.FileDragMove:
+			owner.FileDragMove(pos)
+		case gogpu.FileDragLeave:
+			owner.FileDragLeave()
+		case gogpu.FileDragDrop:
+			owner.DropFiles(e.Paths, pos)
+		}
+	})
 }
 
 func (a *App) close() {
+	a.saveWindowState()
+	a.closeWindows()
 	a.stopDev()
 	if a.root != nil {
 		a.root.Unmount()

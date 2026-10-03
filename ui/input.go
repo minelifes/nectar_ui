@@ -3,8 +3,8 @@ package ui
 import (
 	"sync"
 
-	"github.com/gogpu/gogpu"
 	"github.com/gogpu/gpucontext"
+	"github.com/minelifes/nectar_ui/internal/gogpu"
 
 	"github.com/minelifes/nectar_ui/ui/geom"
 	"github.com/minelifes/nectar_ui/ui/render"
@@ -98,7 +98,11 @@ func (q *inputQueue) enqueue(e queuedEvent) {
 // processInput dispatches queued events against the last laid-out tree.
 // Runs on the UI thread before build, so handlers can call SetState.
 func (a *App) processInput() {
-	q := a.input
+	a.input.process(a.pipeline.Root(), a.buildOwner.Focus(), a.gpuApp.SetCursor)
+}
+
+// process dispatches the queued events of one window.
+func (q *inputQueue) process(root render.RenderObject, fm *widgets.FocusManager, setCursor func(gpucontext.CursorShape)) {
 	if q == nil {
 		return
 	}
@@ -109,8 +113,6 @@ func (a *App) processInput() {
 	if len(events) == 0 {
 		return
 	}
-	root := a.pipeline.Root()
-	fm := a.buildOwner.Focus()
 	for _, e := range events {
 		switch {
 		case e.pointer != nil:
@@ -129,7 +131,7 @@ func (a *App) processInput() {
 	}
 	if c := q.dispatcher.Cursor(); c != q.cursor {
 		q.cursor = c
-		a.gpuApp.SetCursor(cursorShape(c))
+		setCursor(cursorShape(c))
 	}
 }
 
@@ -170,6 +172,7 @@ func convertPointer(ev gpucontext.PointerEvent) (render.PointerEvent, bool) {
 		Position: geom.Offset{X: float32(ev.X), Y: float32(ev.Y)},
 		Button:   int(ev.Button),
 		Touch:    ev.PointerType == gpucontext.PointerTypeTouch,
+		Mods:     uint8(convertMods(ev.Modifiers)),
 	}
 	switch ev.Type {
 	case gpucontext.PointerDown:
@@ -204,6 +207,7 @@ func convertScroll(ev gpucontext.ScrollEvent) render.PointerEvent {
 		Position: geom.Offset{X: float32(ev.X), Y: float32(ev.Y)},
 		Scroll:   geom.Offset{X: float32(ev.DeltaX) * unit, Y: float32(ev.DeltaY) * unit},
 		Button:   -1,
+		Mods:     uint8(convertMods(ev.Modifiers)),
 	}
 }
 
@@ -254,6 +258,13 @@ func convertKey(k gpucontext.Key) widgets.KeyCode {
 		// Same order in both enums: Escape Tab Backspace Enter Space Insert
 		// Delete Home End PageUp PageDown Left Right Up Down.
 		return widgets.KeyEscape + widgets.KeyCode(k-gpucontext.KeyEscape)
+	case k >= gpucontext.KeyF1 && k <= gpucontext.KeyF12:
+		return widgets.KeyF1 + widgets.KeyCode(k-gpucontext.KeyF1)
+	case k >= gpucontext.KeyMinus && k <= gpucontext.KeySlash:
+		// Same order: - = [ ] \ ; ' ` , . /
+		return widgets.KeyMinus + widgets.KeyCode(k-gpucontext.KeyMinus)
+	case k == gpucontext.KeyNumpadEnter:
+		return widgets.KeyEnter
 	}
 	return widgets.KeyUnknown
 }

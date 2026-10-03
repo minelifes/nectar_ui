@@ -31,9 +31,18 @@ type BuildOwner struct {
 	// them with ResourcesOf(ctx).
 	Resources *resources.Set
 
-	dirty   []Element
-	tickers map[*Ticker]struct{}
-	focus   *FocusManager
+	// OpenWindow opens another window (set by the app; see the
+	// package-level OpenWindow).
+	OpenWindow func(opt WindowOptions, root Widget, done func(Window, error))
+
+	dirty       []Element
+	tickers     map[*Ticker]struct{}
+	focus       *FocusManager
+	drag        *dragManager
+	fileTargets []*fileDropState
+	fileDrag    fileDragState
+	stats       FrameStats
+	rebuilds    int
 
 	mu     sync.Mutex
 	posted []func()
@@ -86,6 +95,7 @@ func (o *BuildOwner) FlushBuild() {
 		slices.SortStableFunc(batch, func(a, b Element) int { return a.base().depth - b.base().depth })
 		for _, e := range batch {
 			if b := e.base(); b.dirty && b.active {
+				o.rebuilds++
 				e.rebuild()
 			}
 		}

@@ -39,6 +39,17 @@ type Font struct {
 	glyphs   map[rune]GlyphID
 	advances map[GlyphID]float32
 	kerns    map[[2]GlyphID]float32
+
+	// fallback fonts render the runes this one lacks (see WithFallback).
+	fallback []*Font
+	// data is the font file, parsed again for complex shaping on demand
+	// (shaper.go).
+	data []byte
+	hb   *hbState
+	// face is the font whose glyphs these are: f itself, or for a font made
+	// by WithFallback the font it was made from (glyph caches, atlas keys
+	// and metrics are shared with it).
+	face *Font
 }
 
 // ParseFont parses TTF/OTF data.
@@ -55,7 +66,10 @@ func ParseFont(name string, data []byte) (*Font, error) {
 		glyphs:   make(map[rune]GlyphID),
 		advances: make(map[GlyphID]float32),
 		kerns:    make(map[[2]GlyphID]float32),
+		data:     data,
+		hb:       &hbState{},
 	}
+	f.face = f
 	// Querying metrics with ppem == upem gives values in font units (26.6).
 	m, err := sf.Metrics(&f.buf, f.unitPPEM(), font.HintingNone)
 	if err != nil {
@@ -69,6 +83,81 @@ func ParseFont(name string, data []byte) (*Font, error) {
 
 // ID uniquely identifies the font inside this process (used as atlas key).
 func (f *Font) ID() uint32 { return f.id }
+
+// WithFallback returns f with a fallback chain: a rune f has no glyph for
+// is drawn with the first of fonts that has one (an emoji, CJK or symbol
+// font, say). The result shares f's glyphs, metrics and caches; line
+// metrics stay f's. Fallbacks may have fallbacks of their own.
+//
+// Make the font once and keep it: styles compare fonts by pointer, so a
+// new WithFallback on every build would re-lay out the text every frame.
+func (f *Font) WithFallback(fonts ...*Font) *Font {
+	c := *f
+	c.fallback = append(append([]*Font(nil), f.fallback...), fonts...)
+	return &c
+}
+
+// Fallback returns the fallback chain set with WithFallback.
+func (f *Font) Fallback() []*Font { return f.fallback }
+
+// Face returns the font whose glyph outlines f draws: f itself, or the
+// font a WithFallback font was made from.
+func (f *Font) Face() *Font {
+	if f.face == nil {
+		return f
+	}
+	return f.face
+}
+
+// fontFor returns the font (f, one of its fallbacks, or the global
+// fallbacks) that draws r: the first one with a glyph for it, else f.
+func (f *Font) fontFor(r rune) *Font {
+	if r < 0x80 || f.HasGlyph(r) {
+		return f
+	}
+	if g := findFallback(f.fallback, r, 0); g != nil {
+		return g
+	}
+	if g := findFallback(GlobalFallback(), r, 0); g != nil {
+		return g
+	}
+	return f
+}
+
+func findFallback(fonts []*Font, r rune, depth int) *Font {
+	if depth > 4 {
+		return nil
+	}
+	for _, c := range fonts {
+		if c.HasGlyph(r) {
+			return c.Face()
+		}
+		if g := findFallback(c.fallback, r, depth+1); g != nil {
+			return g
+		}
+	}
+	return nil
+}
+
+var (
+	globalMu       sync.Mutex
+	globalFallback []*Font
+)
+
+// SetGlobalFallback sets the fonts every font falls back to after its own
+// chain: the place for an app-wide emoji or CJK font. Call it at startup.
+func SetGlobalFallback(fonts ...*Font) {
+	globalMu.Lock()
+	globalFallback = append([]*Font(nil), fonts...)
+	globalMu.Unlock()
+}
+
+// GlobalFallback returns the fonts set with SetGlobalFallback.
+func GlobalFallback() []*Font {
+	globalMu.Lock()
+	defer globalMu.Unlock()
+	return globalFallback
+}
 
 // Name returns the name given to ParseFont.
 func (f *Font) Name() string { return f.name }

@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gogpu/gogpu"
+	"github.com/minelifes/nectar_ui/internal/gogpu"
 
 	"github.com/minelifes/nectar_ui/ui/commands"
 	"github.com/minelifes/nectar_ui/ui/geom"

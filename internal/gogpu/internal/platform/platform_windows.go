@@ -10,8 +10,8 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/minelifes/nectar_ui/internal/gogpu/internal/platform/eventqueue"
 	"github.com/gogpu/gpucontext"
+	"github.com/minelifes/nectar_ui/internal/gogpu/internal/platform/eventqueue"
 	"golang.org/x/sys/windows"
 )
 
@@ -823,8 +823,11 @@ func (p *windowsPlatform) createWindowWin32(config Config) (*win32Window, error)
 	p.windows[w.hwnd] = w
 	p.windowMu.Unlock()
 
-	// Enable file drag-and-drop (WM_DROPFILES from shell32).
-	procDragAcceptFiles.Call(uintptr(w.hwnd), 1) // TRUE
+	// Incoming file drag-and-drop: an OLE drop target reports enter / move /
+	// leave as well as the drop; WM_DROPFILES (drop only) is the fallback.
+	if !registerDropTarget(p, w) {
+		procDragAcceptFiles.Call(uintptr(w.hwnd), 1) // TRUE
+	}
 
 	// Enable DWM shadow for frameless windows. Transparent windows must skip
 	// the DwmExtendFrameIntoClientArea call: it switches the window onto the
@@ -1179,6 +1182,7 @@ func (w *win32Window) Destroy() {
 		w.platform.windowMu.Unlock()
 	}
 	if w.hwnd != 0 {
+		revokeDropTarget(w)
 		procDestroyWindow.Call(uintptr(w.hwnd))
 		w.hwnd = 0
 	}
@@ -1893,8 +1897,8 @@ func (p *windowsPlatform) handleDropFiles(w *win32Window, wParam uintptr) {
 			WindowID:  w.id,
 			Type:      EventDragDrop,
 			DragPaths: paths,
-			DragX:     float64(pt.x),
-			DragY:     float64(pt.y),
+			DragX:     float64(pt.x) / max(w.scaleFactor(), 1e-3),
+			DragY:     float64(pt.y) / max(w.scaleFactor(), 1e-3),
 		})
 	}
 }

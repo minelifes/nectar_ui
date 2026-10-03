@@ -296,4 +296,3 @@ func strongDir(r rune) int {
 	}
 	return 0
 }
-

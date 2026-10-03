@@ -12,9 +12,9 @@ import (
 	"unicode/utf8"
 	"unsafe"
 
+	"github.com/gogpu/gpucontext"
 	"github.com/minelifes/nectar_ui/internal/gogpu/internal/platform/darwin"
 	"github.com/minelifes/nectar_ui/internal/gogpu/internal/platform/eventqueue"
-	"github.com/gogpu/gpucontext"
 )
 
 // darwinWindow holds all per-window state for a macOS window.

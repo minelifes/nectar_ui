@@ -99,16 +99,9 @@ func (a *App) Run(root widgets.Widget) error {
 	a.root = widgets.Mount(root, a.config.Background, a.buildOwner, a.pipeline)
 
 	a.setupInput()
-	// Files dropped from the OS file manager (the position is in physical
-	// pixels).
-	a.gpuApp.OnDragDrop(func(paths []string, x, y float64) {
-		scale := a.gpuApp.ScaleFactor()
-		if scale <= 0 {
-			scale = 1
-		}
-		pos := geom.Offset{X: float32(x / scale), Y: float32(y / scale)}
-		a.buildOwner.Post(func() { a.buildOwner.DropFiles(paths, pos) })
-	})
+	// Files dragged from the OS file manager, routed to the window they're
+	// over (positions are logical pixels).
+	a.gpuApp.OnFileDrag(a.fileDrag)
 	a.gpuApp.OnDraw(a.frame)
 	a.gpuApp.OnClose(a.close)
 	return a.gpuApp.Run()
@@ -220,6 +213,32 @@ func (a *App) draw(dc *gogpu.Context, fbW, fbH int, scale float32, bg geom.Color
 	if err != nil {
 		slog.Error("nectar-ui: draw failed", "err", err)
 	}
+}
+
+// fileDrag delivers one step of an OS file drag to the tree of the window
+// it's over (on that tree's UI goroutine).
+func (a *App) fileDrag(e gogpu.FileDragEvent) {
+	owner := a.buildOwner
+	a.winMu.Lock()
+	for _, sw := range a.windows {
+		if sw.gw.ID() == e.WindowID {
+			owner = sw.owner
+		}
+	}
+	a.winMu.Unlock()
+	pos := geom.Offset{X: float32(e.X), Y: float32(e.Y)}
+	owner.Post(func() {
+		switch e.Kind {
+		case gogpu.FileDragEnter:
+			owner.FileDragEnter(e.Paths, pos)
+		case gogpu.FileDragMove:
+			owner.FileDragMove(pos)
+		case gogpu.FileDragLeave:
+			owner.FileDragLeave()
+		case gogpu.FileDragDrop:
+			owner.DropFiles(e.Paths, pos)
+		}
+	})
 }
 
 func (a *App) close() {

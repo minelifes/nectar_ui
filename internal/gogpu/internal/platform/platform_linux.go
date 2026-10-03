@@ -14,10 +14,10 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/gogpu/gpucontext"
 	"github.com/minelifes/nectar_ui/internal/gogpu/internal/platform/eventqueue"
 	"github.com/minelifes/nectar_ui/internal/gogpu/internal/platform/wayland"
 	"github.com/minelifes/nectar_ui/internal/gogpu/internal/platform/x11"
-	"github.com/gogpu/gpucontext"
 )
 
 // xkbKeyHandler abstracts the keyboard layout handling provided by libxkbcommon.
@@ -337,12 +337,14 @@ func translateX11Event(event x11.PlatformEvent, inner *x11.Platform, windowID Wi
 		return Event{Type: EventScroll, Scroll: event.Scroll, WindowID: windowID}
 	case x11.EventTypeExpose:
 		return Event{Type: EventExpose, WindowID: windowID}
-	case x11.EventTypeDragEnter:
-		return Event{Type: EventDragEnter, DragPaths: event.DragPaths, DragX: event.DragX, DragY: event.DragY, WindowID: windowID}
-	case x11.EventTypeDragMove:
-		return Event{Type: EventDragMove, DragX: event.DragX, DragY: event.DragY, WindowID: windowID}
-	case x11.EventTypeDragDrop:
-		return Event{Type: EventDragDrop, DragPaths: event.DragPaths, DragX: event.DragX, DragY: event.DragY, WindowID: windowID}
+	case x11.EventTypeDragEnter, x11.EventTypeDragMove, x11.EventTypeDragDrop:
+		// X11 positions are physical pixels; drag events are logical.
+		x, y := event.DragX, event.DragY
+		if scale := inner.ScaleFactor(); scale > 1.0 {
+			x, y = x/scale, y/scale
+		}
+		typ := map[x11.EventType]EventType{x11.EventTypeDragEnter: EventDragEnter, x11.EventTypeDragMove: EventDragMove, x11.EventTypeDragDrop: EventDragDrop}[event.Type]
+		return Event{Type: typ, DragPaths: event.DragPaths, DragX: x, DragY: y, WindowID: windowID}
 	case x11.EventTypeDragLeave:
 		return Event{Type: EventDragLeave, WindowID: windowID}
 	default:

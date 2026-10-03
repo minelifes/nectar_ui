@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"syscall/js"
 
-	"github.com/minelifes/nectar_ui/internal/gogpu/internal/platform/eventqueue"
 	"github.com/gogpu/gpucontext"
+	"github.com/minelifes/nectar_ui/internal/gogpu/internal/platform/eventqueue"
 )
 
 // browserPlatform implements PlatformManager for browser/WASM.

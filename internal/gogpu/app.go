@@ -6,11 +6,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/gogpu/gpucontext"
 	"github.com/minelifes/nectar_ui/internal/gogpu/gpu/types"
 	"github.com/minelifes/nectar_ui/internal/gogpu/input"
 	"github.com/minelifes/nectar_ui/internal/gogpu/internal/platform"
 	"github.com/minelifes/nectar_ui/internal/gogpu/internal/thread"
-	"github.com/gogpu/gpucontext"
 )
 
 type appRenderLoop interface {
@@ -62,6 +62,7 @@ type App struct {
 	onSuspended        func()                             // app backgrounded (ADR-026)
 	onMemoryWarning    func()                             // free caches or be killed (ADR-026)
 	onFileDrop         func(paths []string, x, y float64) // OS file drag-and-drop
+	onFileDrag         func(FileDragEvent)                // enter / move / leave / drop
 	hitTestCallback    gpucontext.HitTestCallback
 
 	// State
@@ -228,10 +229,37 @@ func (a *App) OnAnyWindowClosed(fn func(WindowID)) *App {
 // OnDragDrop sets the callback for OS file drag-and-drop events.
 // When files are dragged from the OS file manager and dropped on the window,
 // this callback is invoked with the list of file paths and the drop position
-// in physical pixels. Supported on Windows (WM_DROPFILES), macOS
-// (NSDraggingDestination), X11 (XDND v5), and Wayland (wl_data_device).
+// in logical pixels (DIP) relative to the window's content. Supported on
+// Windows, macOS, X11 (XDND v5), and Wayland (wl_data_device).
 func (a *App) OnDragDrop(fn func(paths []string, x, y float64)) *App {
 	a.onFileDrop = fn
+	return a
+}
+
+// FileDragKind is the step of an OS file drag over a window.
+type FileDragKind int
+
+const (
+	FileDragEnter FileDragKind = iota // files entered the window (Paths set)
+	FileDragMove                      // they moved over it
+	FileDragLeave                     // they left without a drop
+	FileDragDrop                      // they were dropped (Paths set)
+)
+
+// FileDragEvent is one step of files dragged from the OS over a window.
+// X and Y are logical pixels (DIP) relative to the window's content.
+type FileDragEvent struct {
+	Kind     FileDragKind
+	Paths    []string
+	X, Y     float64
+	WindowID WindowID
+}
+
+// OnFileDrag sets the callback for every step of an OS file drag over the
+// window: enter, move, leave and drop, so the app can highlight where the
+// files would go. (OnDragDrop still gets the drops.)
+func (a *App) OnFileDrag(fn func(FileDragEvent)) *App {
+	a.onFileDrag = fn
 	return a
 }
 
@@ -879,8 +907,28 @@ func (a *App) classifyEvent(event *platform.Event, lastResize *platform.Event, s
 			a.onFileDrop(event.DragPaths, event.DragX, event.DragY)
 			a.RequestRedraw()
 		}
+		a.fileDrag(FileDragDrop, event)
+	case platform.EventDragEnter:
+		a.fileDrag(FileDragEnter, event)
+	case platform.EventDragMove:
+		a.fileDrag(FileDragMove, event)
+	case platform.EventDragLeave:
+		a.fileDrag(FileDragLeave, event)
 	}
 	return lastResize, secondaryResizes
+}
+
+// fileDrag reports one step of an OS file drag.
+func (a *App) fileDrag(kind FileDragKind, event *platform.Event) {
+	if a.onFileDrag == nil {
+		return
+	}
+	var id WindowID
+	if w := a.windowManager.getByPlatformID(event.WindowID); w != nil {
+		id = w.id
+	}
+	a.onFileDrag(FileDragEvent{Kind: kind, Paths: event.DragPaths, X: event.DragX, Y: event.DragY, WindowID: id})
+	a.RequestRedraw()
 }
 
 // dispatchKeyEvent handles EventKeyDown and EventKeyUp from the platform.

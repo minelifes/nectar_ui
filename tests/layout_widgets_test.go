@@ -341,3 +341,28 @@ func (s *counterPanelState) Build(w.BuildContext) w.Widget {
 	return w.Align{Alignment: geom.TopLeft, Child: w.GestureDetector{OnTap: func() { s.SetState(func() { s.n++ }) },
 		Child: w.Text{Text: fmt.Sprintf("%s: %d", id, s.n)}}}
 }
+
+func TestFileDragHover(t *testing.T) {
+	var log []string
+	target := func(name string, child w.Widget) w.Widget {
+		return w.FileDropTarget{
+			OnEnter: func(p []string, l geom.Offset) { log = append(log, fmt.Sprintf("enter %s %v", name, p)) },
+			OnMove:  func(l geom.Offset) { log = append(log, fmt.Sprintf("move %s %.0f,%.0f", name, l.X, l.Y)) },
+			OnLeave: func() { log = append(log, "leave "+name) },
+			OnDrop:  func(p []string, l geom.Offset) { log = append(log, fmt.Sprintf("drop %s %.0f,%.0f", name, l.X, l.Y)) },
+			Child:   child,
+		}
+	}
+	tt := tester.New(target("outer", w.Align{Alignment: geom.TopLeft, Child: target("inner", w.SizedBox{Width: 100, Height: 100})}), 300, 300)
+	files := []string{"/a.png"}
+	tt.DragFiles(files, true, geom.Pt(200, 200), geom.Pt(50, 50), geom.Pt(60, 40))
+	want := "enter outer [/a.png]|leave outer|enter inner [/a.png]|move inner 60,40|drop inner 60,40"
+	if got := strings.Join(log, "|"); got != want {
+		t.Fatalf("got  %s\nwant %s", got, want)
+	}
+	log = nil
+	tt.DragFiles(files, false, geom.Pt(50, 50))
+	if got := strings.Join(log, "|"); got != "enter inner [/a.png]|leave inner" {
+		t.Fatalf("leave: %s", got)
+	}
+}

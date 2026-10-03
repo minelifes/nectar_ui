@@ -117,8 +117,12 @@ func TestActivationFailures(t *testing.T) {
 	h.Register(extension.Manifest{ID: "panics"}, func() extension.Extension {
 		return extension.ExtensionFunc(func(*extension.Context) error { panic("boom") })
 	})
-	h.Register(extension.Manifest{ID: "a", Requires: []string{"b"}}, func() extension.Extension { return extension.ExtensionFunc(func(*extension.Context) error { return nil }) })
-	h.Register(extension.Manifest{ID: "b", Requires: []string{"a"}}, func() extension.Extension { return extension.ExtensionFunc(func(*extension.Context) error { return nil }) })
+	h.Register(extension.Manifest{ID: "a", Requires: []string{"b"}}, func() extension.Extension {
+		return extension.ExtensionFunc(func(*extension.Context) error { return nil })
+	})
+	h.Register(extension.Manifest{ID: "b", Requires: []string{"a"}}, func() extension.Extension {
+		return extension.ExtensionFunc(func(*extension.Context) error { return nil })
+	})
 	if err := h.Activate("err"); err == nil {
 		t.Fatal("error swallowed")
 	}

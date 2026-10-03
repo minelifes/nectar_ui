@@ -8,6 +8,7 @@ require (
 	github.com/gogpu/gpucontext v0.31.3
 	github.com/gogpu/gputypes v0.8.0
 	github.com/gogpu/wgpu v0.34.5
+	github.com/tetratelabs/wazero v1.10.1
 	golang.org/x/image v0.46.0
 )
 

@@ -44,6 +44,7 @@ func (s *calendarState) Build(ctx w.BuildContext) w.Widget {
 	cp := w.WidgetOf[CalendarDatePicker](s)
 	th := ThemeOf(ctx)
 	sc := th.Scheme
+	dt := th.DatePicker
 	today := cp.Today
 	if today.IsZero() {
 		today = time.Now()
@@ -64,7 +65,7 @@ func (s *calendarState) Build(ctx w.BuildContext) w.Widget {
 		onNext = func() { s.SetState(func() { s.month = next }) }
 	}
 	header := w.Row{Cross: w.CrossCenter, Children: []w.Widget{
-		w.Padding{Padding: geom.InsetsLTRB(12, 0, 0, 0), Child: w.Text{Text: s.month.Format("January 2006"), Style: Styled(th.Text.TitleSmall, sc.OnSurfaceVariant)}},
+		w.Padding{Padding: geom.InsetsLTRB(12, 0, 0, 0), Child: w.Text{Text: s.month.Format("January 2006"), Style: Styled(th.Text.TitleSmall, pick(dt.HeaderForegroundColor, sc.OnSurfaceVariant))}},
 		w.Spacer{},
 		IconButton{Icon: iconChevronLeft, OnPressed: onPrev},
 		IconButton{Icon: iconChevronRight, OnPressed: onNext},
@@ -74,7 +75,7 @@ func (s *calendarState) Build(ctx w.BuildContext) w.Widget {
 	}
 	week := []w.Widget{}
 	for _, d := range []string{"S", "M", "T", "W", "T", "F", "S"} {
-		week = append(week, cell(w.Text{Text: d, Style: Styled(th.Text.BodySmall, sc.OnSurface)}))
+		week = append(week, cell(w.Text{Text: d, Style: pickTC(dt.WeekdayTextStyle, th.Text.BodySmall, sc.OnSurface)}))
 	}
 	rows := []w.Widget{header, w.Row{Children: week}}
 	lead := int(s.month.Weekday())
@@ -88,14 +89,14 @@ func (s *calendarState) Build(ctx w.BuildContext) w.Widget {
 		sel := !cp.Selected.IsZero() && sameDay(day, cp.Selected)
 		isToday := sameDay(day, today)
 		ok := inRange(day)
-		fg := sc.OnSurface
+		fg := pick(dt.DayForegroundColor, sc.OnSurface)
 		var bg, border geom.Color
 		var bw float32
 		switch {
 		case sel:
-			bg, fg = sc.Primary, sc.OnPrimary
+			bg, fg = pick(dt.SelectedDayBackgroundColor, sc.Primary), pick(dt.SelectedDayForegroundColor, sc.OnPrimary)
 		case isToday:
-			fg, border, bw = sc.Primary, sc.Primary, 1
+			fg, border, bw = pick(dt.TodayForegroundColor, sc.Primary), pick(dt.TodayBorderColor, sc.Primary), 1
 		}
 		if !ok {
 			fg, _ = disabledColors(sc)
@@ -105,7 +106,7 @@ func (s *calendarState) Build(ctx w.BuildContext) w.Widget {
 			tap = func() { cp.OnChanged(day) }
 		}
 		row = append(row, cell(InkSurface{OnTap: tap, Color: bg, ContentColor: fg, BorderColor: border, BorderWidth: bw, Radius: CornerFull, NoFocus: true,
-			Child: w.SizedBox{Width: 40, Height: 40, Child: w.Center{Child: w.Text{Text: strconv.Itoa(d), Style: Styled(th.Text.BodyLarge, fg)}}}}))
+			Child: w.SizedBox{Width: 40, Height: 40, Child: w.Center{Child: w.Text{Text: strconv.Itoa(d), Style: pickTC(dt.DayTextStyle, th.Text.BodyLarge, fg)}}}}))
 		if len(row) == 7 {
 			rows = append(rows, w.Row{Children: row})
 			row = nil
@@ -157,10 +158,12 @@ func (s *datePickerState) Build(ctx w.BuildContext) w.Widget {
 	if title == "" {
 		title = "Select date"
 	}
+	dt := th.DatePicker
 	pad := geom.InsetsLTRB(12, 16, 12, 12)
-	return w.SizedBox{Width: 360, Child: Dialog{Padding: &pad, Child: w.Column{Cross: w.CrossStretch, ShrinkMain: true, Children: []w.Widget{
-		w.Padding{Padding: geom.InsetsLTRB(12, 0, 12, 0), Child: w.Text{Text: title, Style: Styled(th.Text.LabelLarge, sc.OnSurfaceVariant)}},
-		w.Padding{Padding: geom.InsetsLTRB(12, 20, 12, 12), Child: w.Text{Text: s.sel.Format("Mon, Jan 2"), Style: Styled(th.Text.HeadlineLarge, sc.OnSurface)}},
+	hf := pick(dt.HeaderForegroundColor, sc.OnSurfaceVariant)
+	return w.SizedBox{Width: 360, Child: Dialog{Padding: &pad, Style: DialogTheme{BackgroundColor: dt.BackgroundColor}, Child: w.Column{Cross: w.CrossStretch, ShrinkMain: true, Children: []w.Widget{
+		w.Padding{Padding: geom.InsetsLTRB(12, 0, 12, 0), Child: w.Text{Text: title, Style: Styled(th.Text.LabelLarge, hf)}},
+		w.Padding{Padding: geom.InsetsLTRB(12, 20, 12, 12), Child: w.Text{Text: s.sel.Format("Mon, Jan 2"), Style: pickTC(dt.HeadlineTextStyle, th.Text.HeadlineLarge, sc.OnSurface)}},
 		Divider{},
 		w.SizedBox{Height: 8},
 		CalendarDatePicker{Selected: s.sel, First: o.First, Last: o.Last, OnChanged: func(t time.Time) { s.SetState(func() { s.sel = t }) }},
@@ -204,12 +207,13 @@ func (s *timePickerState) Build(ctx w.BuildContext) w.Widget {
 	d := w.WidgetOf[timePickerDialog](s)
 	th := ThemeOf(ctx)
 	sc := th.Scheme
+	tt := th.TimePicker
 	box := func(c *w.TextEditingController, label string) w.Widget {
 		return w.Column{Cross: w.CrossStart, ShrinkMain: true, Spacing: 6, Children: []w.Widget{
-			w.Container{Width: 96, Height: 72, Color: sc.SurfaceContainerHighest, Border: &geom.Border{Radius: CornerSmall},
+			w.Container{Width: 96, Height: 72, Color: pick(tt.InputBackgroundColor, sc.SurfaceContainerHighest), Border: &geom.Border{Radius: pickF(tt.Radius, CornerSmall)},
 				Alignment: w.Ptr(geom.Center), Padding: geom.InsetsHV(16, 0),
-				Child: w.EditableText{Controller: c, Style: Styled(th.Text.DisplayMedium, sc.OnSurface), CursorColor: sc.Primary}},
-			w.Text{Text: label, Style: Styled(th.Text.BodySmall, sc.OnSurfaceVariant)},
+				Child: w.EditableText{Controller: c, Style: pickTC(tt.InputTextStyle, th.Text.DisplayMedium, sc.OnSurface), CursorColor: sc.Primary}},
+			w.Text{Text: label, Style: pickTC(tt.HelpTextStyle, th.Text.BodySmall, sc.OnSurfaceVariant)},
 		}}
 	}
 	parse := func() (int, int, bool) {
@@ -218,11 +222,11 @@ func (s *timePickerState) Build(ctx w.BuildContext) w.Widget {
 		return h, m, e1 == nil && e2 == nil && h >= 0 && h < 24 && m >= 0 && m < 60
 	}
 	kids := []w.Widget{
-		w.Text{Text: "Enter time", Style: Styled(th.Text.LabelLarge, sc.OnSurfaceVariant)},
+		w.Text{Text: "Enter time", Style: pickTC(tt.HelpTextStyle, th.Text.LabelLarge, sc.OnSurfaceVariant)},
 		w.SizedBox{Height: 20},
 		w.Row{ShrinkMain: true, Cross: w.CrossStart, Spacing: 8, Children: []w.Widget{
 			box(s.hc, "Hour"),
-			w.SizedBox{Height: 72, Child: w.Center{Child: w.Text{Text: ":", Style: Styled(th.Text.DisplayLarge, sc.OnSurface)}}},
+			w.SizedBox{Height: 72, Child: w.Center{Child: w.Text{Text: ":", Style: pickTC(tt.InputTextStyle, th.Text.DisplayLarge, sc.OnSurface)}}},
 			box(s.mc, "Minute"),
 		}},
 	}

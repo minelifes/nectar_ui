@@ -11,7 +11,7 @@ import (
 // snackbar messenger. Put your first page in Home.
 type App struct {
 	Theme     Theme  // zero value = baseline light theme
-	DarkTheme *Theme // used when Dark is set; nil = dark scheme from Theme's seed
+	DarkTheme *Theme // used when Dark is set; nil = Theme.WithDark(true)
 	Dark      bool
 	Home      w.Widget
 }
@@ -19,20 +19,17 @@ type App struct {
 func (a App) Build(w.BuildContext) w.Widget {
 	th := a.Theme
 	if th.Scheme == (ColorScheme{}) {
-		th = defaultTheme()
+		th = th.WithDark(false) // baseline scheme, component themes kept
 	}
 	if a.Dark {
-		switch {
-		case a.DarkTheme != nil:
+		if a.DarkTheme != nil {
 			th = *a.DarkTheme
-		case th.Seed != (geom.Color{}):
-			th = NewTheme(th.Seed, true)
-		default:
-			th = NewTheme(BaselineSeed, true)
+		} else {
+			th = th.WithDark(true) // keeps the component themes
 		}
 	}
 	home := a.Home
-	return ThemeScope{Theme: th, Child: w.DecoratedBox{Color: th.Scheme.Surface, Child: w.Overlay{
+	return ThemeScope{Theme: th, Child: w.DecoratedBox{Color: pick(th.ScaffoldBackground, th.Scheme.Surface), Child: w.Overlay{
 		Child: messenger{Child: w.Navigator{Home: home}},
 	}}}
 }
@@ -51,7 +48,8 @@ func Push(ctx w.BuildContext, page func(ctx w.BuildContext) w.Widget) {
 		return
 	}
 	nav.Push(&w.Route{Opaque: true, Duration: 300 * time.Millisecond, Builder: func(ctx w.BuildContext) w.Widget {
-		return w.DecoratedBox{Color: ThemeOf(ctx).Scheme.Surface, Child: page(ctx)}
+		th := ThemeOf(ctx)
+		return w.DecoratedBox{Color: pick(th.ScaffoldBackground, th.Scheme.Surface), Child: page(ctx)}
 	}, Transition: func(child w.Widget, t float32) w.Widget {
 		if t >= 1 {
 			return child
@@ -143,8 +141,10 @@ func (s *messengerState) buildBar(ctx w.BuildContext) w.Widget {
 	}
 	th := ThemeOf(ctx)
 	sc := th.Scheme
+	st := th.SnackBar
+	action := pick(st.ActionTextColor, sc.InversePrimary)
 	kids := []w.Widget{w.Expanded{Child: w.Padding{Padding: geom.InsetsHV(0, 14),
-		Child: w.Text{Text: sb.Message, Style: Styled(th.Text.BodyMedium, sc.InverseOnSurface)}}}}
+		Child: w.Text{Text: sb.Message, Style: pickTC(st.ContentTextStyle, th.Text.BodyMedium, sc.InverseOnSurface)}}}}
 	if sb.ActionLabel != "" {
 		act := sb.OnAction
 		kids = append(kids, InkSurface{OnTap: func() {
@@ -152,18 +152,18 @@ func (s *messengerState) buildBar(ctx w.BuildContext) w.Widget {
 				act()
 			}
 			s.hide()
-		}, ContentColor: sc.InversePrimary, Radius: CornerFull, Child: w.Padding{Padding: geom.InsetsHV(12, 10),
-			Child: w.Text{Text: sb.ActionLabel, Style: Styled(th.Text.LabelLarge, sc.InversePrimary)}}})
+		}, ContentColor: action, Radius: CornerFull, Child: w.Padding{Padding: geom.InsetsHV(12, 10),
+			Child: w.Text{Text: sb.ActionLabel, Style: Styled(th.Text.LabelLarge, action)}}})
 	}
 	if sb.ShowClose {
-		kids = append(kids, IconButton{Icon: iconClose, Color: sc.InverseOnSurface, OnPressed: s.hide})
+		kids = append(kids, IconButton{Icon: iconClose, Color: pick(st.CloseIconColor, sc.InverseOnSurface), OnPressed: s.hide})
 	}
 	t := s.anim.Value()
-	bar := Surface{Color: sc.InverseSurface, Radius: CornerExtraSmall, Elevation: 3,
+	bar := Surface{Color: pick(st.BackgroundColor, sc.InverseSurface), Radius: pickF(st.Radius, CornerExtraSmall), Elevation: pickI(st.Elevation, 3),
 		Child: w.Padding{Padding: geom.InsetsLTRB(16, 0, 8, 0), Child: w.Row{Cross: w.CrossCenter, Spacing: 8, Children: kids}}}
 	return w.Stack{Expand: true, Children: []w.Widget{
 		w.Positioned{Left: w.At(16), Right: w.At(16), Bottom: w.At(16), Child: w.Align{Alignment: geom.BottomCenter,
-			Child: w.ConstrainedBox{Constraints: geom.Constraints{MaxW: 640, MaxH: geom.Inf},
+			Child: w.ConstrainedBox{Constraints: geom.Constraints{MaxW: pickF(st.MaxWidth, 640), MaxH: geom.Inf},
 				Child: w.Opacity{Opacity: t, Child: w.Translate{Offset: geom.Pt(0, (1-t)*24), Child: bar}}}}},
 	}}
 }

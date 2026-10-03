@@ -288,3 +288,16 @@ func mapsEqual(a, b map[string]int) bool {
 	}
 	return true
 }
+
+// Watch works inside a LayoutBuilder, whose builder runs during layout.
+func TestWatchInsideLayoutBuilder(t *testing.T) {
+	p := mvvm.NewProperty("a")
+	tt := tester.New(w.LayoutBuilder{Builder: func(ctx w.BuildContext, _ geom.Constraints) w.Widget {
+		return w.Text{Text: mvvm.Watch(ctx, p)}
+	}}, 100, 100)
+	p.Set("b")
+	tt.Pump()
+	if got := tt.Texts(); len(got) != 1 || got[0] != "b" {
+		t.Fatalf("texts = %v", got)
+	}
+}

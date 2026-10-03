@@ -9,6 +9,7 @@
 package material
 
 import (
+	"reflect"
 	"sync"
 
 	"golang.org/x/image/font/gofont/gomedium"
@@ -168,11 +169,80 @@ var elevationDP = [6]float32{0, 1, 3, 6, 8, 12}
 // ---------------------------------------------------------------------------
 // Theme
 
-// Theme bundles everything components need.
+// Theme bundles everything components need: the color scheme, the type
+// scale and one theme per component (Flutter's ThemeData). Component
+// themes are optional: leave a field zero and the component uses its M3
+// default; set it to restyle that component everywhere below the theme.
+// A widget's own Style field wins over its theme (see theme_style.go).
+//
+//	th := material.NewTheme(geom.Hex(0x0B57D0), false)
+//	th.FilledButton = material.ButtonStyle{Radius: material.Dp(8)}
+//	th.Card = material.CardTheme{Elevation: w.Ptr(0), BorderWidth: material.Dp(1)}
+//	material.App{Theme: th, Home: page}
 type Theme struct {
 	Seed   geom.Color // the seed the scheme was generated from (if any)
 	Scheme ColorScheme
 	Text   TextTheme
+
+	// ScaffoldBackground is the page color (default Scheme.Surface).
+	ScaffoldBackground geom.Color
+	// FocusRingColor is the keyboard focus ring of interactive components
+	// (default Scheme.Secondary).
+	FocusRingColor geom.Color
+
+	// Buttons
+	ElevatedButton    ButtonStyle
+	FilledButton      ButtonStyle
+	FilledTonalButton ButtonStyle
+	OutlinedButton    ButtonStyle
+	TextButton        ButtonStyle
+	IconButton        ButtonStyle
+	SegmentedButton   ButtonStyle
+	FAB               FloatingActionButtonTheme
+
+	// Containment and communication
+	Card          CardTheme
+	Divider       DividerTheme
+	ListTile      ListTileTheme
+	ExpansionTile ExpansionTileTheme
+	Badge         BadgeTheme
+	Avatar        CircleAvatarTheme
+	Tooltip       TooltipTheme
+	Banner        BannerTheme
+	Progress      ProgressIndicatorTheme
+	SnackBar      SnackBarTheme
+	Dialog        DialogTheme
+	BottomSheet   BottomSheetTheme
+	SideSheet     SideSheetTheme
+	Carousel      CarouselTheme
+
+	// Selection and input
+	Chip         ChipTheme
+	Checkbox     CheckboxTheme
+	Radio        RadioTheme
+	Switch       SwitchTheme
+	Slider       SliderTheme
+	Input        InputDecorationTheme
+	SearchBar    SearchBarTheme
+	Menu         MenuTheme
+	DropdownMenu DropdownMenuTheme
+	DatePicker   DatePickerTheme
+	TimePicker   TimePickerTheme
+
+	// Navigation
+	AppBar           AppBarTheme
+	NavigationBar    NavigationBarTheme
+	NavigationRail   NavigationRailTheme
+	NavigationDrawer NavigationDrawerTheme
+	TabBar           TabBarTheme
+	BottomAppBar     BottomAppBarTheme
+	TitleBar         TitleBarTheme
+
+	// Data
+	DataTable DataTableTheme
+	Stepper   StepperTheme
+	TreeView  TreeViewTheme
+	SplitView SplitViewTheme
 }
 
 // NewTheme builds a theme from a seed color.
@@ -181,15 +251,64 @@ func NewTheme(seed geom.Color, dark bool) Theme {
 	return Theme{Seed: seed, Scheme: s, Text: DefaultTextTheme(s.OnSurface)}
 }
 
+// WithDark returns the theme with the light or dark scheme generated from
+// its seed (the baseline seed if it has none). Component themes are kept,
+// and text styles that used the old OnSurface color get the new one.
+func (t Theme) WithDark(dark bool) Theme {
+	seed := t.Seed
+	if seed == (geom.Color{}) {
+		seed = BaselineSeed
+	}
+	old := t.Scheme.OnSurface
+	t.Seed, t.Scheme = seed, SchemeFromSeed(seed, dark)
+	if t.Text == (TextTheme{}) {
+		t.Text = DefaultTextTheme(t.Scheme.OnSurface)
+		return t
+	}
+	recolor := func(st *text.Style) {
+		if st.Color == old {
+			st.Color = t.Scheme.OnSurface
+		}
+	}
+	for _, st := range []*text.Style{
+		&t.Text.DisplayLarge, &t.Text.DisplayMedium, &t.Text.DisplaySmall,
+		&t.Text.HeadlineLarge, &t.Text.HeadlineMedium, &t.Text.HeadlineSmall,
+		&t.Text.TitleLarge, &t.Text.TitleMedium, &t.Text.TitleSmall,
+		&t.Text.BodyLarge, &t.Text.BodyMedium, &t.Text.BodySmall,
+		&t.Text.LabelLarge, &t.Text.LabelMedium, &t.Text.LabelSmall,
+	} {
+		recolor(st)
+	}
+	return t
+}
+
 // Baseline M3 seed (purple, #6750A4).
 var BaselineSeed = geom.Hex(0x6750A4)
 
 // ThemeOf returns the nearest theme (the baseline light theme if none).
 func ThemeOf(ctx w.BuildContext) Theme {
+	if t, ok := w.DependOn[themeProvider](ctx); ok {
+		return t.theme
+	}
+	// A plain widgets.Provider[Theme] works too (compared with ==, so a
+	// theme holding fresh pointers rebuilds its dependents each time).
 	if t, ok := w.Of[Theme](ctx); ok {
 		return t
 	}
 	return defaultTheme()
+}
+
+// themeProvider hands the theme to the subtree. Themes hold pointers
+// (optional sizes), so it compares them by value: rebuilding an App with
+// an equal theme doesn't rebuild every themed widget.
+type themeProvider struct {
+	theme Theme
+	child w.Widget
+}
+
+func (p themeProvider) ChildWidget() w.Widget { return p.child }
+func (p themeProvider) UpdateShouldNotify(old w.Widget) bool {
+	return !reflect.DeepEqual(old.(themeProvider).theme, p.theme)
 }
 
 var (
@@ -211,7 +330,7 @@ type ThemeScope struct {
 
 func (t ThemeScope) Build(w.BuildContext) w.Widget {
 	s := t.Theme.Scheme
-	return w.Provider[Theme]{Value: t.Theme, Child: w.DefaultTextStyle{
+	return themeProvider{theme: t.Theme, child: w.DefaultTextStyle{
 		Style: t.Theme.Text.BodyMedium,
 		Child: w.IconTheme{Size: 24, Color: s.OnSurfaceVariant, Child: t.Child},
 	}}

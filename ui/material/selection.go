@@ -20,6 +20,8 @@ type Checkbox struct {
 	Indeterminate bool // shows a dash (tristate)
 	Error         bool
 	OnChanged     func(bool) // nil = disabled
+	// Style overrides Theme.Checkbox.
+	Style CheckboxTheme
 }
 
 func (Checkbox) CreateState() w.State { return &checkboxState{} }
@@ -40,17 +42,21 @@ func (s *checkboxState) InitState() {
 
 func (s *checkboxState) Build(ctx w.BuildContext) w.Widget {
 	cb := w.WidgetOf[Checkbox](s)
-	sc := ThemeOf(ctx).Scheme
+	th := ThemeOf(ctx)
+	sc := th.Scheme
+	st := merge(th.Checkbox, cb.Style)
 	checked := cb.Value || cb.Indeterminate
 	if checked {
 		s.on.Set(1)
 	} else {
 		s.on.Set(0)
 	}
-	fill, mark, border := sc.Primary, sc.OnPrimary, sc.OnSurfaceVariant
+	fill, mark, border := pick(st.FillColor, sc.Primary), pick(st.CheckColor, sc.OnPrimary), pick(st.BorderColor, sc.OnSurfaceVariant)
 	if cb.Error {
-		fill, mark, border = sc.Error, sc.OnError, sc.Error
+		e := pick(st.ErrorColor, sc.Error)
+		fill, mark, border = e, sc.OnError, e
 	}
+	side, radius, bw := pickF(st.Size, 18), pickF(st.Radius, 2), pickF(st.BorderWidth, 2)
 	if cb.OnChanged == nil {
 		dc, _ := disabledColors(sc)
 		fill, border, mark = dc, dc, sc.Surface
@@ -64,19 +70,22 @@ func (s *checkboxState) Build(ctx w.BuildContext) w.Widget {
 	if checked {
 		state = fill
 	}
-	return InkSurface{OnTap: tap, ContentColor: state, Radius: CornerFull, Child: w.CustomPaint{Size: geom.Sz(40, 40),
+	state = pick(st.OverlayColor, state)
+	target := max(40, side+22)
+	return InkSurface{OnTap: tap, ContentColor: state, Radius: CornerFull, Child: w.CustomPaint{Size: geom.Sz(target, target),
 		Painter: func(c *render.Canvas, o geom.Offset, size geom.Size) {
-			box := geom.Rect{X: o.X + (size.W-18)/2, Y: o.Y + (size.H-18)/2, W: 18, H: 18}
+			box := geom.Rect{X: o.X + (size.W-side)/2, Y: o.Y + (size.H-side)/2, W: side, H: side}
 			t := s.on.Value()
-			if t < 1 {
-				c.StrokeRoundRect(box, 2, 2, border.WithAlpha(border.A*(1-t)))
+			if t < 1 && bw > 0 {
+				c.StrokeRoundRect(box, radius, bw, border.WithAlpha(border.A*(1-t)))
 			}
 			if t > 0 {
-				c.FillRoundRect(box, 2, fill.WithAlpha(fill.A*t))
+				c.FillRoundRect(box, radius, fill.WithAlpha(fill.A*t))
+				k := side / 18
 				if ind {
-					c.FillRect(geom.Rect{X: box.X + 4, Y: box.Y + 8, W: 10, H: 2}, mark.WithAlpha(t))
+					c.FillRect(geom.Rect{X: box.X + 4*k, Y: box.Y + 8*k, W: 10 * k, H: 2 * k}, mark.WithAlpha(t))
 				} else {
-					c.DrawIcon(iconCheck, geom.Rect{X: box.X + 1, Y: box.Y + 1, W: 16, H: 16}, mark.WithAlpha(t))
+					c.DrawIcon(iconCheck, geom.Rect{X: box.X + k, Y: box.Y + k, W: 16 * k, H: 16 * k}, mark.WithAlpha(t))
 				}
 			}
 		}}}
@@ -90,6 +99,8 @@ type Radio[T comparable] struct {
 	Value      T
 	GroupValue T
 	OnChanged  func(T) // nil = disabled
+	// Style overrides Theme.Radio.
+	Style RadioTheme
 }
 
 func (r Radio[T]) CreateState() w.State { return &radioState[T]{} }
@@ -110,14 +121,17 @@ func (s *radioState[T]) InitState() {
 
 func (s *radioState[T]) Build(ctx w.BuildContext) w.Widget {
 	r := w.WidgetOf[Radio[T]](s)
-	sc := ThemeOf(ctx).Scheme
+	th := ThemeOf(ctx)
+	sc := th.Scheme
+	st := merge(th.Radio, r.Style)
 	sel := r.Value == r.GroupValue
 	if sel {
 		s.on.Set(1)
 	} else {
 		s.on.Set(0)
 	}
-	on, off := sc.Primary, sc.OnSurfaceVariant
+	on, off := pick(st.FillColor, sc.Primary), pick(st.UnselectedColor, sc.OnSurfaceVariant)
+	ring := pickF(st.Radius, 10)
 	if r.OnChanged == nil {
 		on, _ = disabledColors(sc)
 		off = on
@@ -130,14 +144,15 @@ func (s *radioState[T]) Build(ctx w.BuildContext) w.Widget {
 	if sel {
 		state = on
 	}
-	return InkSurface{OnTap: tap, ContentColor: state, Radius: CornerFull, Child: w.CustomPaint{Size: geom.Sz(40, 40),
+	target := max(40, 2*ring+20)
+	return InkSurface{OnTap: tap, ContentColor: pick(st.OverlayColor, state), Radius: CornerFull, Child: w.CustomPaint{Size: geom.Sz(target, target),
 		Painter: func(c *render.Canvas, o geom.Offset, size geom.Size) {
 			ctr := geom.Pt(o.X+size.W/2, o.Y+size.H/2)
 			t := s.on.Value()
 			col := LerpColor(off, on, t)
-			c.StrokeCircle(ctr, 10, 2, col)
+			c.StrokeCircle(ctr, ring, 2, col)
 			if t > 0 {
-				c.FillCircle(ctr, 5*t, on)
+				c.FillCircle(ctr, ring/2*t, on)
 			}
 		}}}
 }
@@ -151,6 +166,8 @@ type Switch struct {
 	OnChanged func(bool) // nil = disabled
 	// ThumbIcon shows an icon (e.g. a check) in the thumb when on.
 	ThumbIcon bool
+	// Style overrides Theme.Switch.
+	Style SwitchTheme
 }
 
 func (Switch) CreateState() w.State { return &switchState{} }
@@ -175,7 +192,9 @@ func (s *switchState) InitState() {
 
 func (s *switchState) Build(ctx w.BuildContext) w.Widget {
 	sw := w.WidgetOf[Switch](s)
-	sc := ThemeOf(ctx).Scheme
+	th := ThemeOf(ctx)
+	sc := th.Scheme
+	st := merge(th.Switch, sw.Style)
 	if !s.dragging {
 		if sw.Value {
 			s.pos.Set(1)
@@ -196,9 +215,9 @@ func (s *switchState) Build(ctx w.BuildContext) w.Widget {
 			t = s.dragPos
 		}
 		track := geom.Rect{X: o.X + (size.W-52)/2, Y: o.Y + (size.H-32)/2, W: 52, H: 32}
-		offTrack, onTrack := sc.SurfaceContainerHighest, sc.Primary
-		offThumb, onThumb := sc.Outline, sc.OnPrimary
-		border := sc.Outline
+		offTrack, onTrack := pick(st.InactiveTrackColor, sc.SurfaceContainerHighest), pick(st.TrackColor, sc.Primary)
+		offThumb, onThumb := pick(st.InactiveThumbColor, sc.Outline), pick(st.ThumbColor, sc.OnPrimary)
+		border := pick(st.TrackOutlineColor, sc.Outline)
 		if !enabled {
 			_, dbg := disabledColors(sc)
 			offTrack, onTrack = dbg, sc.OnSurface.WithAlpha(0.12)
@@ -218,15 +237,16 @@ func (s *switchState) Build(ctx w.BuildContext) w.Widget {
 		cx := track.X + widgetsLerp(16, 36, t)
 		cy := track.Y + 16
 		if s.hovered && enabled {
-			c.FillCircle(geom.Pt(cx, cy), 20, LerpColor(sc.OnSurface, sc.Primary, t).WithAlpha(HoverOpacity))
+			ov := pick(st.OverlayColor, LerpColor(sc.OnSurface, onTrack, t))
+			c.FillCircle(geom.Pt(cx, cy), 20, ov.WithAlpha(ov.A*HoverOpacity))
 		}
 		thumb := LerpColor(offThumb, onThumb, t)
 		if s.pressed && enabled && t > 0.5 {
-			thumb = sc.PrimaryContainer
+			thumb = pick(st.PressedThumbColor, sc.PrimaryContainer)
 		}
 		c.FillCircle(geom.Pt(cx, cy), d/2, thumb)
 		if thumbIcon && t > 0.5 {
-			c.DrawIcon(iconCheck, geom.Rect{X: cx - 8, Y: cy - 8, W: 16, H: 16}, sc.OnPrimaryContainer.WithAlpha((t-0.5)*2))
+			c.DrawIcon(iconCheck, geom.Rect{X: cx - 8, Y: cy - 8, W: 16, H: 16}, pick(st.ThumbIconColor, sc.OnPrimaryContainer).WithAlpha((t-0.5)*2))
 		}
 	}
 	var child w.Widget = w.CustomPaint{Size: geom.Sz(52, 40), Painter: paint}
@@ -272,6 +292,8 @@ type Slider struct {
 	Label           func(v float32) string // value bubble while dragging (nil = "%.0f" with divisions)
 	OnChanged       func(float32)          // nil = disabled
 	OnChangeEnd     func(float32)
+	// Style overrides Theme.Slider.
+	Style SliderTheme
 }
 
 func (Slider) CreateState() w.State { return &sliderState{} }
@@ -306,6 +328,7 @@ func valueAt(x, width, lo, hi float32, div int) float32 {
 func (s *sliderState) Build(ctx w.BuildContext) w.Widget {
 	sl := w.WidgetOf[Slider](s)
 	th := ThemeOf(ctx)
+	st := merge(th.Slider, sl.Style)
 	lo, hi := sl.rng()
 	t := (min(max(sl.Value, lo), hi) - lo) / (hi - lo)
 	label := sl.Label
@@ -314,9 +337,9 @@ func (s *sliderState) Build(ctx w.BuildContext) w.Widget {
 	}
 	paint := func(c *render.Canvas, o geom.Offset, size geom.Size) {
 		s.size = size
-		paintSliderTrack(c, o, size, th, []float32{t}, sl.Divisions, sl.OnChanged != nil, s.hovered, s.dragging)
+		paintSliderTrack(c, o, size, th, st, []float32{t}, sl.Divisions, sl.OnChanged != nil, s.hovered, s.dragging)
 		if s.dragging && label != nil {
-			paintValueBubble(c, o, size, th, t, label(sl.Value))
+			paintValueBubble(c, o, size, th, st, t, label(sl.Value))
 		}
 	}
 	return sliderInteraction(s, sl.OnChanged != nil, paint, func(x float32, start bool) {
@@ -379,10 +402,12 @@ func sliderInteraction(s *sliderState, enabled bool, paint render.Painter, set f
 
 // paintSliderTrack draws track, ticks and handles at positions ts (0..1).
 // With two positions the active range lies between them.
-func paintSliderTrack(c *render.Canvas, o geom.Offset, size geom.Size, th Theme, ts []float32, div int, enabled, hovered, dragging bool) {
+func paintSliderTrack(c *render.Canvas, o geom.Offset, size geom.Size, th Theme, st SliderTheme, ts []float32, div int, enabled, hovered, dragging bool) {
 	sc := th.Scheme
-	active, inactive, handle := sc.Primary, sc.SecondaryContainer, sc.Primary
-	tickOn, tickOff := sc.OnPrimary, sc.OnSecondaryContainer
+	active, inactive := pick(st.ActiveTrackColor, sc.Primary), pick(st.InactiveTrackColor, sc.SecondaryContainer)
+	handle, overlay := pick(st.ThumbColor, sc.Primary), pick(st.OverlayColor, sc.Primary)
+	tickOn, tickOff := pick(st.ActiveTickMarkColor, sc.OnPrimary), pick(st.InactiveTickMarkColor, sc.OnSecondaryContainer)
+	th4, thumbR := pickF(st.TrackHeight, 4), pickF(st.ThumbRadius, 10)
 	if !enabled {
 		dc, dbg := disabledColors(sc)
 		active, inactive, handle = dc, dbg, dc
@@ -395,8 +420,9 @@ func paintSliderTrack(c *render.Canvas, o geom.Offset, size geom.Size, th Theme,
 	if len(ts) == 2 {
 		a, b = ts[0], ts[1]
 	}
-	c.FillRoundRect(geom.Rect{X: x0 - 2, Y: cy - 2, W: x1 - x0 + 4, H: 4}, 2, inactive)
-	c.FillRoundRect(geom.Rect{X: xAt(a) - 2, Y: cy - 2, W: xAt(b) - xAt(a) + 4, H: 4}, 2, active)
+	hh := th4 / 2
+	c.FillRoundRect(geom.Rect{X: x0 - hh, Y: cy - hh, W: x1 - x0 + th4, H: th4}, hh, inactive)
+	c.FillRoundRect(geom.Rect{X: xAt(a) - hh, Y: cy - hh, W: xAt(b) - xAt(a) + th4, H: th4}, hh, active)
 	if div > 0 && div <= 100 {
 		for i := 0; i <= div; i++ {
 			t := float32(i) / float32(div)
@@ -414,21 +440,21 @@ func paintSliderTrack(c *render.Canvas, o geom.Offset, size geom.Size, th Theme,
 			if dragging {
 				op = DraggedOpacity
 			}
-			c.FillCircle(p, 20, sc.Primary.WithAlpha(op))
+			c.FillCircle(p, 2*thumbR, overlay.WithAlpha(overlay.A*op))
 		}
-		paintShadow(c, geom.Rect{X: p.X - 10, Y: p.Y - 10, W: 20, H: 20}, 10, 1, sc.Shadow)
-		c.FillCircle(p, 10, handle)
+		paintShadow(c, geom.Rect{X: p.X - thumbR, Y: p.Y - thumbR, W: 2 * thumbR, H: 2 * thumbR}, thumbR, 1, sc.Shadow)
+		c.FillCircle(p, thumbR, handle)
 	}
 }
 
 // paintValueBubble draws the value label above the handle at t.
-func paintValueBubble(c *render.Canvas, o geom.Offset, size geom.Size, th Theme, t float32, s string) {
+func paintValueBubble(c *render.Canvas, o geom.Offset, size geom.Size, th Theme, st SliderTheme, t float32, s string) {
 	sc := th.Scheme
-	p := text.Layout(s, Styled(th.Text.LabelMedium, sc.OnPrimary), text.Options{})
+	p := text.Layout(s, pickTC(st.ValueIndicatorTextStyle, th.Text.LabelMedium, sc.OnPrimary), text.Options{})
 	x := o.X + sliderPad + (size.W-2*sliderPad)*t
 	wd := max(p.Width+16, 28)
 	r := geom.Rect{X: x - wd/2, Y: o.Y + size.H/2 - 48, W: wd, H: 28}
-	c.FillRoundRect(r, 14, sc.Primary)
+	c.FillRoundRect(r, 14, pick(st.ValueIndicatorColor, sc.Primary))
 	c.DrawParagraph(p, geom.Pt(r.X+(r.W-p.Width)/2, r.Y+(r.H-p.Height)/2))
 }
 
@@ -439,6 +465,8 @@ type RangeSlider struct {
 	Divisions  int
 	Label      func(v float32) string
 	OnChanged  func(start, end float32)
+	// Style overrides Theme.Slider.
+	Style SliderTheme
 }
 
 func (RangeSlider) CreateState() w.State { return &rangeSliderState{} }
@@ -448,6 +476,7 @@ type rangeSliderState struct{ sliderState }
 func (s *rangeSliderState) Build(ctx w.BuildContext) w.Widget {
 	rs := w.WidgetOf[RangeSlider](s)
 	th := ThemeOf(ctx)
+	st := merge(th.Slider, rs.Style)
 	sl := Slider{Min: rs.Min, Max: rs.Max}
 	lo, hi := sl.rng()
 	norm := func(v float32) float32 { return (min(max(v, lo), hi) - lo) / (hi - lo) }
@@ -458,12 +487,12 @@ func (s *rangeSliderState) Build(ctx w.BuildContext) w.Widget {
 	}
 	paint := func(c *render.Canvas, o geom.Offset, size geom.Size) {
 		s.size = size
-		paintSliderTrack(c, o, size, th, []float32{ta, tb}, rs.Divisions, rs.OnChanged != nil, s.hovered, s.dragging)
+		paintSliderTrack(c, o, size, th, st, []float32{ta, tb}, rs.Divisions, rs.OnChanged != nil, s.hovered, s.dragging)
 		if s.dragging && label != nil {
 			if s.active == 0 {
-				paintValueBubble(c, o, size, th, ta, label(rs.Start))
+				paintValueBubble(c, o, size, th, st, ta, label(rs.Start))
 			} else {
-				paintValueBubble(c, o, size, th, tb, label(rs.End))
+				paintValueBubble(c, o, size, th, st, tb, label(rs.End))
 			}
 		}
 	}

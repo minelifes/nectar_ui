@@ -35,11 +35,12 @@ type Surface struct {
 	BorderColor geom.Color
 	BorderWidth float32
 	Elevation   int
+	ShadowColor geom.Color // default Scheme.Shadow
 	Child       w.Widget
 }
 
 func (s Surface) Build(ctx w.BuildContext) w.Widget {
-	shadow := ThemeOf(ctx).Scheme.Shadow
+	shadow := pick(s.ShadowColor, ThemeOf(ctx).Scheme.Shadow)
 	return w.CustomPaint{Child: s.Child, Painter: func(c *render.Canvas, o geom.Offset, size geom.Size) {
 		r := geom.RectFrom(o, size)
 		paintShadow(c, r, s.Radius, float32(s.Elevation), shadow)
@@ -63,9 +64,10 @@ type InkSurface struct {
 	BorderWidth  float32
 	Radius       float32
 	Elevation    int
-	RaiseOnHover bool // +1 elevation level while hovered (elevated buttons, FABs)
-	Disabled     bool // no interaction (OnTap == nil also disables)
-	NoFocus      bool // exclude from keyboard focus
+	RaiseOnHover bool       // +1 elevation level while hovered (elevated buttons, FABs)
+	ShadowColor  geom.Color // default Scheme.Shadow
+	Disabled     bool       // no interaction (OnTap == nil also disables)
+	NoFocus      bool       // exclude from keyboard focus
 	Child        w.Widget
 }
 
@@ -168,7 +170,7 @@ func (s *inkState) Build(ctx w.BuildContext) w.Widget {
 	}
 	s.elev.Set(el)
 
-	shadow, ring := th.Scheme.Shadow, th.Scheme.Secondary
+	shadow, ring := pick(ww.ShadowColor, th.Scheme.Shadow), pick(th.FocusRingColor, th.Scheme.Secondary)
 	painter := func(c *render.Canvas, o geom.Offset, size geom.Size) {
 		s.size = size
 		ww := s.widget()

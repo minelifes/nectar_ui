@@ -205,17 +205,19 @@ func (s *carouselState) onWheel(e w.PointerEvent) {
 
 func (s *carouselState) Build(ctx w.BuildContext) w.Widget {
 	c := s.c()
-	sc := ThemeOf(ctx).Scheme
+	th := ThemeOf(ctx)
+	sc := th.Scheme
+	ct := th.Carousel
 	colors := c.Colors
 	if len(colors) == 0 {
-		colors = []geom.Color{sc.SurfaceContainerHighest, sc.SurfaceContainerHigh, sc.SurfaceContainer}
+		colors = []geom.Color{pick(ct.ItemColors[0], sc.SurfaceContainerHighest), pick(ct.ItemColors[1], sc.SurfaceContainerHigh), pick(ct.ItemColors[2], sc.SurfaceContainer)}
 	}
 	s.pos = min(max(s.pos, 0), s.maxPos())
 	items := make([]w.Widget, len(c.Items))
 	for i, it := range c.Items {
 		items[i] = w.KeyedSubtree{ID: i, Child: w.IgnorePointer{Ignoring: true, Child: it}}
 	}
-	body := carouselView{state: s, layout: c.Layout, extent: c.ItemExtent, height: c.Height, pos: s.pos, colors: colors, items: items}
+	body := carouselView{state: s, layout: c.Layout, extent: c.ItemExtent, height: c.Height, pos: s.pos, colors: colors, radius: pickF(ct.Radius, CornerExtraLarge), items: items}
 	return w.Focus{Node: s.node, Child: w.Listener{OnEvent: s.onWheel, Child: w.GestureDetector{
 		OnPanStart: func(w.DragDetails) { s.stopSnap() },
 		OnPanUpdate: func(d w.DragDetails) {
@@ -242,6 +244,7 @@ type carouselView struct {
 	height float32
 	pos    float32
 	colors []geom.Color
+	radius float32
 	items  []w.Widget
 }
 
@@ -265,7 +268,7 @@ func (v carouselView) UpdateRenderObject(_ w.BuildContext, ro render.RenderObjec
 		r.pos = v.pos
 		render.MarkNeedsLayout(r) // positions and masks depend on pos
 	}
-	r.colors = v.colors
+	r.colors, r.radius = v.colors, v.radius
 	render.MarkNeedsPaint(r)
 }
 
@@ -278,6 +281,7 @@ type renderCarousel struct {
 	height float32
 	pos    float32
 	colors []geom.Color
+	radius float32
 
 	unit  float32     // scroll distance per item (large size + gap)
 	masks []geom.Rect // per child, local coordinates
@@ -431,7 +435,7 @@ func (r *renderCarousel) Paint(ctx *render.PaintContext, o geom.Offset) {
 		if len(r.colors) > 0 {
 			col = r.colors[i%len(r.colors)]
 		}
-		c.FillRoundRect(m, CornerExtraLarge, col)
+		c.FillRoundRect(m, r.radius, col)
 		c.PushClip(m)
 		ctx.PaintChild(ch, o)
 		c.PopClip()

@@ -15,6 +15,7 @@ go install github.com/minelifes/nectar_ui/cmd/nectar@latest
 nectar new myapp                     # Material 3 starter in ./myapp
 cd myapp && CGO_ENABLED=0 go run .
 nectar dev                           # or run it with hot reload (see below)
+nectar theme                         # design its light and dark themes in a live editor (see below)
 ```
 
 `nectar new` writes a ready-to-run module that imports the engine from GitHub (`go get github.com/minelifes/nectar_ui@<version>` + `go mod tidy`).
@@ -342,6 +343,77 @@ app.Run(material.App{Theme: material.NewTheme(geom.Hex(0x6750A4), false), Dark: 
 `CGO_ENABLED=0 go run ./examples/material` opens the gallery with every component, a dark-mode toggle and a seed picker.
 
 Known gaps compared to Flutter: the time picker is input-only with 24-hour time (no dial), ripples in segmented buttons aren't clipped to the pill ends, carousel items are visual only (use `OnTap`; no buttons inside items), and fonts are the Go fonts, not Roboto.
+
+### Component themes
+
+Like Flutter's `ThemeData`, `Theme` holds one theme per component besides the color scheme and type scale: `FilledButton`, `ElevatedButton`, `FilledTonalButton`, `OutlinedButton`, `TextButton`, `IconButton`, `SegmentedButton` (all `ButtonStyle`), `FAB`, `Card`, `Divider`, `ListTile`, `ExpansionTile`, `Badge`, `Avatar`, `Tooltip`, `Banner`, `Progress`, `SnackBar`, `Dialog`, `BottomSheet`, `SideSheet`, `Carousel`, `Chip`, `Checkbox`, `Radio`, `Switch`, `Slider`, `Input` (text fields), `SearchBar`, `Menu`, `DropdownMenu`, `DatePicker`, `TimePicker`, `AppBar`, `NavigationBar`, `NavigationRail`, `NavigationDrawer`, `TabBar`, `BottomAppBar`, `TitleBar`, `DataTable`, `Stepper`, `TreeView` and `SplitView`, plus `ScaffoldBackground` and `FocusRingColor`.
+
+```go
+th := m.NewTheme(geom.Hex(0x0B57D0), false)
+th.FilledButton = m.ButtonStyle{Radius: m.Dp(8), Padding: w.Ptr(geom.InsetsHV(20, 0))}
+th.Card = m.CardTheme{Elevation: w.Ptr(0), BorderWidth: m.Dp(1)}
+th.Input = m.InputDecorationTheme{Outlined: w.Ptr(true), Radius: m.Dp(12)}
+th.NavigationBar = m.NavigationBarTheme{IndicatorColor: geom.Hex(0xFFD8E4)}
+m.App{Theme: th, Home: page}                 // dark mode keeps them (Theme.WithDark)
+
+// one widget: its Style wins over the theme, field by field
+m.FilledButton{Label: "Delete", Style: m.ButtonStyle{BackgroundColor: th.Scheme.Error}}
+
+// one subtree: copy the theme, change it, provide it
+t := m.ThemeOf(ctx)
+t.ListTile.Radius = m.Dp(12)
+m.ThemeScope{Theme: t, Child: sidebar}
+```
+
+- **Precedence:** the widget's `Style` field, then the theme's component theme, then the M3 default from the scheme.
+- **Unset values:** colors and text styles use their zero value (text styles merge field by field, like `Text`). Numbers, insets, elevation and flags are pointers, because 0 is meaningful (square corners, no shadow): `m.Dp(0)`, `w.Ptr(0)`, `w.Ptr(false)`. For an explicit "no color" use `m.Transparent`.
+- **Outlines** need a color and a width: set only the color for a 1px line, or only the width for the default color.
+- **Rebuilds:** a `Style` literal with pointer fields is a new value on every build, so that widget is never skipped as unchanged; keep often-used styles in package-level variables. Equal themes don't rebuild their dependents (`ThemeScope` compares them by value).
+- `tests/theme_gallery_test.go` renders every component and checks that each theme field changes what's drawn.
+
+### Theme editor: `nectar theme`
+
+`nectar theme` opens a Nectar UI app for designing your light and dark themes visually, then writes them as Go code.
+
+```sh
+nectar theme                          # in an app: edits internal/theme (else the current folder)
+nectar theme ui/brand -pkg brand -prefix Brand
+nectar theme -new                     # start over, replacing the files on save
+```
+
+- **Light and dark are separate designs.** The *Light | Dark* switch picks which one you edit and preview. Each has its own seed, color scheme, type scale and component styles. Dark starts from the Material 3 dark baseline, not from your light edits. *Copy from light/dark* starts one from the other, and *Reset* only resets the one shown.
+- **Edit:** the seed color, every color-scheme role, each style of the type scale (size, font weight, letter spacing, line height, color) and every field of every component theme. Colors have a hex field and a picker (hue, saturation, brightness, opacity, or a role of the current scheme). Sizes have sliders. Flags, elevation and fonts have segmented choices. The ↶ button next to an edited field resets it. Search finds components by name or by field.
+- **Preview:** the selected component first, then all of them, live. The preview is a real `material.App` with the design, so its buttons open dialogs, sheets, menus, snack bars and pickers in the designed style.
+- **Code:** *Code* shows the two files and copies either one. *Save* (or Ctrl/⌘+S) writes both: `theme_light.go` with `func LightTheme() m.Theme` and `theme_dark.go` with `func DarkTheme() m.Theme`. Each returns one struct literal: the full color scheme and type scale, plus the component fields you set:
+
+```go
+func LightTheme() m.Theme {
+	return m.Theme{
+		Seed: geom.Hex(0x006A6A),
+		Scheme: m.ColorScheme{
+			Primary:   geom.Hex(0x006A6A),
+			OnPrimary: geom.Hex(0xFFFFFF),
+			// … every role
+		},
+		Text: m.TextTheme{
+			BodyLarge: text.Style{
+				Font:          text.DefaultFont(),
+				Size:          16,
+				Color:         geom.Hex(0x151D1D),
+				LineHeight:    1.5,
+				LetterSpacing: 0.5,
+			},
+			// … every style
+		},
+		Card: m.CardTheme{
+			Radius:    m.Dp(8),
+			Elevation: w.Ptr(0),
+		},
+	}
+}
+```
+
+Use them with `material.App{Theme: theme.LightTheme(), DarkTheme: widgets.Ptr(theme.DarkTheme()), Dark: dark}`. In a `nectar new` app, return them from `Light` and `Dark` in `internal/theme/theme.go`. Each file also stores its design in its last line, so `nectar theme` on the folder reopens both. Files it didn't write are never overwritten.
 
 ## Testing widgets (`ui/tester`)
 

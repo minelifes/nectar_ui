@@ -129,6 +129,27 @@ type Snapshot struct {
 // Commands returns the captured commands.
 func (s *Snapshot) Commands() []Command { return s.cmds }
 
+// Find returns the captured command with the given ID.
+func (s *Snapshot) Find(id string) (Command, bool) {
+	for _, c := range s.cmds {
+		if c.ID == id {
+			return c, true
+		}
+	}
+	return Command{}, false
+}
+
+// ShortcutLabel returns the first shortcut of the captured command id,
+// formatted for a menu; "" if none.
+func (s *Snapshot) ShortcutLabel(id string) string {
+	if c, ok := s.Find(id); ok {
+		if ks := s.host.Keymap.KeysFor(c); len(ks) > 0 {
+			return ks[0].String()
+		}
+	}
+	return ""
+}
+
 // Run gives the focus back to where it was and runs the command with the
 // given ID, if it's enabled. Returns whether it ran.
 func (s *Snapshot) Run(id string) bool {

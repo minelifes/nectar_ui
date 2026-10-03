@@ -25,6 +25,12 @@ type Window struct {
 	// HitTest.
 	TitleBarInfo widgets.TitleBarInfo
 
+	// OpenResult / SaveResult are what the next file dialogs "choose"
+	// (nil / "" = cancelled); Dialogs records the options of each dialog.
+	OpenResult []string
+	SaveResult string
+	Dialogs    []widgets.FileDialogOptions
+
 	subs    map[int]func()
 	nextSub int
 }
@@ -124,3 +130,17 @@ func (w *Window) HitTest(x, y float32) render.WindowHit {
 // ResizeBorder is how close to the edge of a frameless window a press
 // resizes it (logical px).
 const ResizeBorder float32 = 6
+
+// OpenFileDialog implements widgets.FileDialogs with OpenResult.
+func (w *Window) OpenFileDialog(opt widgets.FileDialogOptions, done func([]string, error)) {
+	w.Dialogs = append(w.Dialogs, opt)
+	res := w.OpenResult
+	w.t.Build.Post(func() { done(res, nil) })
+}
+
+// SaveFileDialog implements widgets.FileDialogs with SaveResult.
+func (w *Window) SaveFileDialog(opt widgets.FileDialogOptions, done func(string, error)) {
+	w.Dialogs = append(w.Dialogs, opt)
+	res := w.SaveResult
+	w.t.Build.Post(func() { done(res, nil) })
+}

@@ -9,8 +9,10 @@ import (
 
 	"github.com/gogpu/gogpu"
 
+	"github.com/minelifes/nectar_ui/ui/commands"
 	"github.com/minelifes/nectar_ui/ui/geom"
 	"github.com/minelifes/nectar_ui/ui/gpu"
+	"github.com/minelifes/nectar_ui/ui/menu"
 	"github.com/minelifes/nectar_ui/ui/render"
 	"github.com/minelifes/nectar_ui/ui/resources"
 	"github.com/minelifes/nectar_ui/ui/widgets"
@@ -32,6 +34,9 @@ type App struct {
 	imeEnabled bool
 	imePos     [2]int
 	hits       *hitTester // frameless title bars
+
+	nativeMenus []menu.Menu
+	nativeHost  *commands.Host
 }
 
 // NewApp creates an application with the given config.
@@ -61,7 +66,11 @@ func (a *App) Run(root widgets.Widget) error {
 	a.pipeline.OnNeedVisualUpdate = a.gpuApp.RequestRedraw
 
 	a.window = newNativeWindow(a.gpuApp, a.config)
+	a.window.post = a.buildOwner.Post
 	a.buildOwner.Window = a.window
+	if a.nativeMenus != nil {
+		a.window.do(func(g *gogpu.App) { a.applyNativeMenu(g) })
+	}
 	// The app's resources: its own mounts over the global ones.
 	a.resources = resources.NewSet(resources.Global())
 	for _, m := range a.config.mounts {

@@ -53,13 +53,24 @@ Name, bundle id, version and icon come from the app's `nectar.json`. The icon is
 ## Packages (dependencies point downwards only)
 
 ```
-ui            App: window + frame loop (build → layout → paint → GPU)
+ui            App: windows + frame loop (build → layout → paint → GPU), native menu, file drops
+├── material  Material 3 components and themes
+├── devtools  widget inspector, performance overlay, tree dumps
+├── extension extension points, manifests, lazy activation (extension/wasm: sandboxed plugins)
+├── menu      menus as data (in-app menu bar, context menus, native macOS menu)
+├── commands  commands, rebindable key sequences, scopes, the command palette's data
 ├── mvvm      view models: observable properties, lists, bindings
+├── settings  typed preferences saved in the user's config folder
+├── tasks     background work with progress and cancellation
+├── i18n      message catalogs, plurals, language fallback
+├── fswatch   file change notifications (fsnotify, polling fallback)
+├── undo      undo/redo history with groups and merging
+├── fuzzy     fuzzy matching for pickers and palettes
 ├── hotreload `nectar dev` support: state kept across restarts, file watching
 ├── widgets   Widget / Element tree, State, BuildOwner, basic widgets
 ├── gpu       wgpu pipeline, WGSL uber-shader, batching, atlas upload
 ├── render    RenderObject tree: layout (constraints), paint → Canvas display list
-├── text      Font, paragraph layout (wrap / align / ellipsis), glyph atlas
+├── text      Font, rich paragraph layout (spans, fallback, wrap / align / ellipsis), glyph atlas
 └── geom      Offset, Size, Rect, EdgeInsets, Constraints, Color
 ```
 
@@ -98,7 +109,11 @@ Frames are on demand: `SetState`, `Post` and `MarkNeedsLayout/Paint` call `Reque
   - Your own widgets can take part via `FocusNode.OnIME` (`IMEStart` / `IMEUpdate` / `IMEEnd`).
   - In tests: `tt.Compose("ni", -1)`, `tt.Commit("你")`, `tt.CancelIME()`, `tt.IMERect()`.
   - Platform side: gogpu declares the composition callbacks, and `ui.App` subscribes to them, but its macOS/Windows/Linux backends don't emit them yet. Inline composition turns on as soon as they do. Until then, Windows delivers the committed text as ordinary typing, while macOS and Linux get no IME input.
-- **Fonts for CJK:** the built-in Go fonts don't include CJK glyphs. Load a CJK font (e.g. Noto Sans CJK) with `text.ParseFont` from your resources and use it in the text style.
+- **Rich text:** `widgets.RichText{Spans: []text.Span{...}}` lays out runs with their own font, size, color, background and `Underline` / `Strikethrough` / `Overline` in one paragraph (`text.LayoutSpans` underneath). A single span lays out exactly like `Text`.
+- **Font fallback:** `font.WithFallback(cjk, emoji)` draws the runes a font lacks from the next font that has them; `text.SetGlobalFallback(...)` sets fallbacks for every font. The built-in Go fonts have no CJK glyphs: load one (e.g. Noto Sans CJK) with `text.ParseFont` and add it as a fallback.
+- **Tabs:** `Style.TabSize` sets tab stops in spaces (0 keeps a tab one space wide).
+- **Selection:** `widgets.SelectableText` (read-only): drag, double-click a word, triple-click all, Shift+arrows, Ctrl/⌘+A and Ctrl/⌘+C. Paragraphs expose `OffsetAt`, `CaretAt`, `SelectionRects` and `text.WordAt` for your own text widgets.
+- **Not yet:** ligatures and contextual shaping (sfnt has no GSUB support).
 
 ## Writing widgets
 
@@ -317,7 +332,14 @@ widgets.LayoutBuilder{Builder: func(ctx widgets.BuildContext, c geom.Constraints
 
 - **Drawing:** the `render.Canvas` draws rounded rects, strokes, arcs, soft shadows, ripples (a circle clipped to a rounded rect), vector icons and text. It also has clip and opacity stacks. Every shape is drawn analytically in one uber-shader.
 - **Layout:** `Stack` / `Positioned`, `Wrap`, `TreeView` (expandable rows with lazy `Load` children, only visible rows built, `TreeController` for expand/select/reload from code, full keyboard navigation; `FileNodes` turns any `fs.FS` into nodes), `SplitView` (resizable panes with per-pane `Min`/`Max`: dragging a divider cascades to the next pane once one hits a limit, sizes scale with the window, and arrow keys move a focused divider), `Opacity`, `Translate`, `IgnorePointer`, `AbsorbPointer`, `SizeTransition`, `FractionallySizedBox`, and `CustomPaint` (give `Size` an axis of `geom.Inf` to fill that axis).
-- **Scrolling:** `ScrollView`, `ListView`, `ListViewBuilder` (lazy, fixed row height) and `ScrollController` (`JumpTo`, `AnimateTo`). Nested scroll views hand wheel events to the innermost one that can move.
+- **Scrolling:** `ScrollView`, `ListView`, `ListViewBuilder` and `ScrollController` (`JumpTo`, `AnimateTo`). Nested scroll views hand wheel events to the innermost one that can move.
+  - `ListViewBuilder` builds only the visible rows: fixed `ItemExtent`, or `ItemExtentOf(i)` for rows of different sizes, and `IsHeader(i)` for section headers that stay pinned at the top until the next one pushes them away.
+  - `ScrollView2D` scrolls both ways (wheel, Shift+wheel, trackpad, drag), with a controller per axis.
+  - `DataGrid` is a virtualized table: only visible rows are built, the header stays on top and scrolls sideways with the rows, columns resize by dragging.
+- **Docking:** `Dock` + `DockController` arrange panels in tab groups and splits. Users drag tabs to reorder them, move them to another group or drop them on a group's edge to split it. Layouts save and restore as JSON, and background tabs keep their state (`Offstage`). `material.Dock` styles it (`Theme.Dock`).
+- **Drag and drop:** `Draggable` / `DragTarget` move data inside the app (with a feedback widget under the pointer); `FileDropTarget` receives files dropped from the OS file manager.
+- **Windows and dialogs:** `widgets.OpenWindow` (or `ui.App.OpenWindow`) opens more native windows, each with its own widget tree. `widgets.ShowOpenDialog` / `ShowSaveDialog` use the system file dialogs.
+- **Semantics:** `Semantics` annotates a part of the UI with a role, label, value, state and default action. Material controls annotate themselves (`SemanticLabel` on controls without text). `widgets.SemanticsTree` collects them for tests and automation. There's no platform screen-reader bridge yet: gogpu has no accessibility API.
 - **Animation:** tickers driven by frames, `AnimationController` (forward, reverse, repeat), M3 easing curves, and `Animated` for implicit transitions. The app requests frames only while an animation runs.
 - **Keyboard:** `Focus` / `FocusNode`. Key events bubble up through parent nodes, Tab moves focus in reading order, and `CatchAll` nodes catch keys nobody else handled.
 - **Text editing:** `EditableText` + `TextEditingController`: caret, selection, word jumps, clipboard, obscured input, multiline.
@@ -334,7 +356,9 @@ app.Run(material.App{Theme: material.NewTheme(geom.Hex(0x6750A4), false), Dark: 
 - **Actions:** Elevated, Filled, FilledTonal, Outlined and Text buttons, `IconButton` (4 variants plus toggle), `FloatingActionButton` (small, regular, large, extended), `SegmentedButton`.
 - **Communication:** `Badge`, `LinearProgressIndicator`, `CircularProgressIndicator` (determinate and indeterminate), `ShowSnackBar`, `Tooltip`.
 - **Containment:** `Card` (elevated, filled, outlined), `SplitView` (M3 pill drag handles), `TreeView` and `FileTree` (browse an `fs.FS` such as `os.DirFS`: folders first, file-type icons, `OnSelect` / `OnOpen` by path), `Carousel` (multi-browse, uncontained, hero, full-screen; `WheelScroll` lets the vertical wheel drive it and hands scrolling back to the page at either end), `ListTile` (+ checkbox, radio and switch tiles), `ExpansionTile`, `Divider`, `AlertDialog`, `SimpleDialog`, `ShowFullScreenDialog`, `ShowModalBottomSheet`, `SideSheet` (standard) / `ShowModalSideSheet`, `MaterialBanner`, `CircleAvatar`.
-- **Selection:** `Checkbox` (with tristate and error), `Radio[T]`, `Switch`, `Slider`, `RangeSlider`, assist, filter, choice, input and suggestion chips, `ShowDatePicker` / `CalendarDatePicker`, `ShowTimePicker`, `ShowMenu`, `PopupMenuButton`, `DropdownMenu`.
+- **Selection:** `Checkbox` (with tristate and error), `Radio[T]`, `Switch`, `Slider`, `RangeSlider`, assist, filter, choice, input and suggestion chips, `ShowDatePicker` / `CalendarDatePicker`, `ShowTimePicker`, `ShowMenu` (submenus, check marks, ↑/↓/Enter/→/← navigation), `PopupMenuButton`, `DropdownMenu`.
+- **Menus and pickers:** `MenuBar` (an application menu bar; hover or arrow keys move between menus), `ContextMenuRegion` (right-click menus), `QuickPick` / `ShowQuickPick` (fuzzy-filtered list, or your own `Search`), `ShowCommandPalette`. Menu items come from `ui/menu` and can name commands, which supply their label, shortcut and enabled state.
+- **Notifications:** `ShowToast` (stacked in the corner, with actions, progress and update/close handles), `ShowTaskToast` (follows a background task), `HoverCard` / `RichTooltip`.
 - **Text input:** `TextField` (filled or outlined, floating label, hint, helper, error, icons, counter), `SearchBar`.
 - **Navigation:** `AppBar` (small, center, medium, large, with auto back), `NavigationBar`, `NavigationRail`, `NavigationDrawer`, `TabBar` / `TabBarView`, `BottomAppBar`, `Scaffold` (with drawer), `Push` / `Pop`.
 - **Data:** `DataTable` (sorting, row selection), `Stepper`.
@@ -415,6 +439,37 @@ func LightTheme() m.Theme {
 
 Use them with `material.App{Theme: theme.LightTheme(), DarkTheme: widgets.Ptr(theme.DarkTheme()), Dark: dark}`. In a `nectar new` app, return them from `Light` and `Dark` in `internal/theme/theme.go`. Each file also stores its design in its last line, so `nectar theme` on the folder reopens both. Files it didn't write are never overwritten.
 
+## Building larger apps: editors, IDEs, tools
+
+These packages are generic: none knows about IDEs, so any app can use them.
+
+**Commands and shortcuts** (`ui/commands`). Named commands with default keys, a keymap the user can change and save as JSON, and multi-key sequences:
+
+```go
+host := commands.NewHost()
+host.Registry.Register(commands.Command{ID: "file.save", Title: "Save", Category: "File", Keys: []string{"Mod+S"}, Run: vm.Save})
+host.Registry.Register(commands.Command{ID: "view.zen", Title: "Zen Mode", Keys: []string{"Ctrl+K Z"}, Run: vm.ToggleZen})
+app := commands.Commands{Host: host, Child: page}                                   // shortcuts work anywhere below
+editor := commands.Scope{Name: "editor", Commands: editorCommands, Child: editorView} // only while focused inside
+material.ShowCommandPalette(ctx)                                                     // lists what applies at the focus
+```
+
+`Mod` is ⌘ on macOS and Ctrl elsewhere. The focused widget gets a key first (a text field keeps Ctrl+C), then the scopes around it, then the global commands. `host.Keymap.SetKeys(id, "F2")` rebinds; `json.Marshal(host.Keymap)` saves only the user's changes; `Keymap.Conflicts` finds clashes.
+
+**Menus** (`ui/menu`). The same data drives `material.MenuBar`, `material.ContextMenuRegion` and the native macOS menu bar (`app.SetNativeMenu(menus, host)`; `ui.HasNativeMenuBar()` tells where it's shown).
+
+**Extensions** (`ui/extension`). Declare typed extension points (`extension.NewPoint[StatusItem]("statusBar")`), register compiled-in extensions with a manifest, or load a folder of them with `host.LoadDir`. Extensions activate lazily on events (`onStartup`, `onCommand:<id>`, your own `onLanguage:go`), and whatever they register through their `Context` is undone when they're deactivated. With `host.UseCommands(registry)`, commands declared in a manifest's `contributes` appear in the palette before the extension's code is loaded. `extension/wasm` runs plugins compiled to WebAssembly (Go `GOOS=wasip1`, TinyGo, Rust) in a wazero sandbox: no files, network or environment, host functions gated by the manifest's permissions, capped memory and a per-call timeout.
+
+**App services.**
+- `ui/settings`: typed preferences in the user's config folder, saved atomically on change. A `Setting[T]` is observable, so `mvvm.Bind` redraws on change. `ui.Config.WithWindowState(store, "window")` reopens the window at its last size, maximized or fullscreen.
+- `ui/tasks`: background work with progress, status text, cancellation, and panics turned into errors. `Then` callbacks run on the UI goroutine.
+- `ui/fswatch`: file changes under a folder as they happen (inotify, kqueue, Windows notifications through fsnotify, recursive and debounced), with a polling fallback.
+- `ui/i18n`: JSON catalogs, `{name}` placeholders, CLDR plural forms, `pt-BR` → `pt` → default fallback, the OS language, and `i18n.T(ctx, ...)` in widgets.
+- `ui/undo`: undo/redo with groups, merging of rapid edits (typing) and a saved/dirty marker.
+- `ui/fuzzy`: the matching behind QuickPick ("gtf" finds "Go To File").
+
+**Developer tools** (`ui/devtools`). `Inspector` outlines the widget under the pointer; clicking it shows its type, size, constraints, ancestors and fields. `PerformanceOverlay` shows fps, build/layout/paint times and rebuild counts (`BuildOwner.Stats()` has the numbers). `DumpWidgets` / `DumpRender` print the trees.
+
 ## Testing widgets (`ui/tester`)
 
 `tester.New(widget, w, h)` runs the same pipeline as the app without a window, much like Flutter's `WidgetTester`:
@@ -427,9 +482,13 @@ if _, ok := tt.Find("Saved"); !ok { ... }
 tt.SavePNG("out.png")            // renders with the wgpu CPU fallback adapter
 ```
 
+More helpers: `tt.Semantics()` / `tt.FindSemantics("button", "Save")` (read the UI by role and label), `tt.SecondaryTap` (right-click), `tt.Dispatch` (any pointer event), `tt.DropFiles` (files dropped from the OS), and `tt.Window.OpenResult` / `SaveResult` to script file dialogs.
+
 ## Next steps
 
 - Platform IME events in gogpu (NSTextInputClient on macOS, `WM_IME_*` on Windows, text-input-v3/XIM on Linux); the engine side is ready.
-- Font fallback (e.g. a CJK font behind the default one), so mixed-script text renders without choosing a font per style.
+- A code-editing widget on top of rich text (a rope buffer, multiple cursors, gutters, folding, highlighter hooks), as an optional package.
+- Ligatures and contextual shaping (needs GSUB/GPOS support).
+- A screen-reader bridge for the semantics tree, and shortcut hints in the native menu (both need gogpu APIs).
 - GPU-side caching for repaint boundaries (reuse vertex data too, not just the display list).
 - Transforms (scale/rotate), per-corner radii, fling scrolling.

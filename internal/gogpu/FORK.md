@@ -16,7 +16,12 @@ golden images are left out.
 See the git history of this folder; each change is its own commit and is
 listed here:
 
-(none yet)
+1. **Menu shortcuts and check marks.** `MenuItem` gets `KeyEquivalent`,
+   `KeyModifiers`, `ShortcutText` and `Checked`: macOS shows and handles
+   the key equivalent (function and navigation keys included) and the
+   check state; Windows shows the shortcut right-aligned and the check
+   mark. (`menu.go`, `app.go`, `internal/platform/platform.go`,
+   `platform_darwin.go`, `menu_windows.go`)
 
 ## Updating
 

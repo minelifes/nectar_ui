@@ -33,7 +33,10 @@ type Item struct {
 	// taken from it where not set here (see Resolve).
 	Command string
 	// Shortcut is the key hint shown on the right ("Ctrl+S").
-	Shortcut  string
+	Shortcut string
+	// Keys is the shortcut as keys (filled by Resolve from the command):
+	// native menus show and handle it.
+	Keys      commands.Sequence
 	Action    func()
 	Disabled  bool
 	Checked   bool // shows a check mark
@@ -75,6 +78,9 @@ func Resolve(items []Item, snap *commands.Snapshot) []Item {
 			}
 			if it.Shortcut == "" && ok {
 				it.Shortcut = snap.ShortcutLabel(it.Command)
+			}
+			if it.Keys == nil && ok {
+				it.Keys = snap.Keys(it.Command)
 			}
 			if !ok || !c.IsEnabled() {
 				it.Disabled = true

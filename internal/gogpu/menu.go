@@ -29,7 +29,28 @@ type MenuItem struct {
 	Disabled  bool
 	Separator bool
 	Submenu   *Menu
+
+	// KeyEquivalent is the item's shortcut key, shown and handled by the
+	// macOS menu bar: a character ("s", "/") or a key name ("F5", "Left",
+	// "Enter", "Escape", ...), with KeyModifiers. Empty = none.
+	KeyEquivalent string
+	KeyModifiers  MenuModifiers
+	// ShortcutText is the shortcut shown right-aligned in Windows menus
+	// ("Ctrl+S"); display only (key handling stays with the app).
+	ShortcutText string
+	// Checked shows a check mark.
+	Checked bool
 }
+
+// MenuModifiers are the modifier keys of a menu item's key equivalent.
+type MenuModifiers uint8
+
+const (
+	MenuShift   MenuModifiers = MenuModifiers(platform.MenuModShift)
+	MenuControl MenuModifiers = MenuModifiers(platform.MenuModControl)
+	MenuAlt     MenuModifiers = MenuModifiers(platform.MenuModAlt)
+	MenuCommand MenuModifiers = MenuModifiers(platform.MenuModCommand)
+)
 
 // Menu represents a top-level menu.
 type Menu struct {

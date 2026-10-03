@@ -5,6 +5,7 @@ package platform
 import (
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1829,7 +1830,54 @@ func (p *darwinPlatform) addPlatformItem(parentMenu darwin.ID, item MenuItem) {
 		return
 	}
 
-	darwin.AddMenuItemWithCallback(parentMenu, item.Title, item.Action, "")
+	mi := darwin.AddMenuItemWithCallback(parentMenu, item.Title, item.Action, macKeyEquivalent(item.KeyEquivalent))
+	if mi.IsNil() {
+		return
+	}
+	if item.KeyEquivalent != "" {
+		mi.SendInt(darwin.RegisterSelector("setKeyEquivalentModifierMask:"), macModifierMask(item.KeyModifiers))
+	}
+	if item.Checked {
+		mi.SendInt(darwin.RegisterSelector("setState:"), 1) // NSControlStateValueOn
+	}
+}
+
+// macKeyEquivalent turns a key name into the string AppKit expects as a
+// key equivalent: function and navigation keys are private-use characters.
+func macKeyEquivalent(key string) string {
+	special := map[string]rune{
+		"up": 0xF700, "down": 0xF701, "left": 0xF702, "right": 0xF703,
+		"insert": 0xF727, "delete": 0xF728, "home": 0xF729, "end": 0xF72B,
+		"pageup": 0xF72C, "pagedown": 0xF72D,
+		"enter": '\r', "return": '\r', "tab": '\t', "space": ' ', "escape": 0x1B, "backspace": 0x08,
+	}
+	if r, ok := special[strings.ToLower(key)]; ok {
+		return string(r)
+	}
+	if len(key) >= 2 && (key[0] == 'F' || key[0] == 'f') {
+		if n, err := strconv.Atoi(key[1:]); err == nil && n >= 1 && n <= 35 {
+			return string(rune(0xF704 + n - 1))
+		}
+	}
+	return strings.ToLower(key)
+}
+
+// macModifierMask converts MenuMod* flags to NSEventModifierFlags.
+func macModifierMask(m uint8) int64 {
+	var mask int64
+	if m&MenuModShift != 0 {
+		mask |= 1 << 17
+	}
+	if m&MenuModControl != 0 {
+		mask |= 1 << 18
+	}
+	if m&MenuModAlt != 0 {
+		mask |= 1 << 19
+	}
+	if m&MenuModCommand != 0 {
+		mask |= 1 << 20
+	}
+	return mask
 }
 
 // roleToString converts a MenuRole value to its corresponding string representation for OS-specific menu integration.

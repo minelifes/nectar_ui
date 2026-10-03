@@ -1727,11 +1727,15 @@ func (a *App) convertMenuToPlatformItems(items []MenuItem) []platform.MenuItem {
 	res := make([]platform.MenuItem, len(items))
 	for i, it := range items {
 		res[i] = platform.MenuItem{
-			Title:     it.Title,
-			Action:    it.Action,
-			Disabled:  it.Disabled,
-			Separator: it.Separator,
-			Role:      platform.MenuRole(it.Role),
+			Title:         it.Title,
+			Action:        it.Action,
+			Disabled:      it.Disabled,
+			Separator:     it.Separator,
+			Role:          platform.MenuRole(it.Role),
+			KeyEquivalent: it.KeyEquivalent,
+			KeyModifiers:  uint8(it.KeyModifiers),
+			ShortcutText:  it.ShortcutText,
+			Checked:       it.Checked,
 		}
 		if it.Submenu != nil {
 			res[i].Submenu = a.convertMenuToPlatformItems(it.Submenu.Items)

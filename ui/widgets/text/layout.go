@@ -4,6 +4,7 @@ import (
 	"math"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/minelifes/nectar_ui/ui/geom"
 )
@@ -37,6 +38,9 @@ type Style struct {
 	// TabSize is the distance between tab stops in spaces; 0 draws a tab
 	// as one space. Stops are measured from the start of each hard line.
 	TabSize int
+	// NoLigatures turns off the font's standard ligatures ("fi", "->" in
+	// coding fonts); contextual forms that scripts need stay on.
+	NoLigatures bool
 }
 
 // Resolved fills in defaults.
@@ -81,6 +85,9 @@ func (s Style) Inherit(base Style) Style {
 	}
 	if s.TabSize == 0 {
 		s.TabSize = base.TabSize
+	}
+	if !s.NoLigatures {
+		s.NoLigatures = base.NoLigatures
 	}
 	return s
 }
@@ -132,8 +139,23 @@ type Line struct {
 	Start, End int
 	// Stops[i] is the caret x (relative to the line, before X) in front of
 	// the byte at Offsets[i]; the last entry is the end of the line.
+	// Offsets ascend; in right-to-left text the stops don't.
 	Stops   []float32
 	Offsets []int
+	// Clusters are the line's glyph clusters in logical order: the bytes
+	// each covers and where it is drawn (a ligature covers several
+	// characters; right-to-left runs are drawn right to left).
+	Clusters []ClusterBox
+	// RTL is set when the paragraph's direction is right to left (its
+	// first strong character is Hebrew, Arabic, ...).
+	RTL bool
+}
+
+// ClusterBox is where one cluster of a line is drawn.
+type ClusterBox struct {
+	Start, End int     // byte range in the source text
+	X, W       float32 // relative to the line, before Line.X
+	RTL        bool    // drawn right to left
 }
 
 // DecorationRect is a background or a decoration line, relative to its
@@ -171,15 +193,26 @@ type Options struct {
 }
 
 type cluster struct {
-	r     rune
-	g     GlyphID
-	adv   float32
-	kern  float32 // adjustment relative to the previous cluster
-	space bool
-	byteI int
-	font  *Font // the face that draws g
-	size  float32
-	span  int // index into the resolved span styles
+	r       rune
+	g       GlyphID
+	gx, gy  float32 // offset of g from the cluster's pen position
+	more    []clusterGlyph
+	adv     float32
+	kern    float32 // adjustment relative to the previous cluster
+	space   bool
+	byteI   int
+	byteEnd int   // end of the cluster's bytes (ligatures cover several runes)
+	runes   int   // characters in the cluster
+	font    *Font // the face that draws g
+	size    float32
+	span    int   // index into the resolved span styles
+	level   uint8 // bidi embedding level (odd = right to left)
+}
+
+// clusterGlyph is an extra glyph of a cluster (marks, Indic parts).
+type clusterGlyph struct {
+	id   GlyphID
+	x, y float32
 }
 
 // run is one span's text with its resolved style.
@@ -235,7 +268,7 @@ func LayoutSpans(spans []Span, base Style, opt Options) *Paragraph {
 	p := &Paragraph{Style: base, Rich: rich, Text: full}
 	var y float32
 
-	addLine := func(cl []cluster, forceEllipsis bool, start, end int) {
+	addLine := func(cl []cluster, forceEllipsis bool, start, end int, rtl bool) {
 		first := len(p.Glyphs)
 		// Trailing whitespace doesn't count toward width.
 		vis := len(cl)
@@ -257,36 +290,76 @@ func LayoutSpans(spans []Span, base Style, opt Options) *Paragraph {
 		h := lineH + (asc - m.Ascent) + (desc - m.Descent)
 		baseline := y + lead + asc
 		li := len(p.Lines)
+		// Place the clusters in visual order (bidi reordering of the
+		// visible part; trailing spaces stay at the end).
+		order := visualOrder(cl[:vis])
+		for i := vis; i < len(cl); i++ {
+			order = append(order, i)
+		}
+		xs := make([]float32, len(cl))
 		var x, width float32
-		stops := make([]float32, 0, len(cl)+1)
-		offs := make([]int, 0, len(cl)+1)
-		for i, c := range cl {
-			if i > 0 {
+		for k, i := range order {
+			c := cl[i]
+			if k > 0 {
 				x += c.kern
 			}
-			if c.byteI >= 0 {
-				stops = append(stops, x)
-				offs = append(offs, c.byteI)
-			}
+			xs[i] = x
 			if !c.space {
-				g := Glyph{ID: c.g, X: x, Y: baseline, Cluster: c.byteI, Font: c.font, Size: c.size}
+				g := Glyph{ID: c.g, X: x + c.gx, Y: baseline + c.gy, Cluster: c.byteI, Font: c.font, Size: c.size}
 				if rich {
 					g.Color = styles[c.span].Color
 				}
 				p.Glyphs = append(p.Glyphs, g)
+				for _, mg := range c.more {
+					g.ID, g.X, g.Y = mg.id, x+mg.x, baseline+mg.y
+					p.Glyphs = append(p.Glyphs, g)
+				}
 			}
 			x += c.adv
-			if i == vis-1 {
+			if k == vis-1 {
 				width = x
 			}
 		}
-		stops = append(stops, x)
+		// Caret stops in logical order: the leading edge of each character
+		// (inside a ligature, a share of its width).
+		stops := make([]float32, 0, len(cl)+1)
+		offs := make([]int, 0, len(cl)+1)
+		boxes := make([]ClusterBox, 0, len(cl))
+		for i, c := range cl {
+			if c.byteI < 0 {
+				continue // the ellipsis
+			}
+			odd := c.level%2 == 1
+			boxes = append(boxes, ClusterBox{Start: c.byteI, End: c.byteEnd, X: xs[i], W: c.adv, RTL: odd})
+			n := max(c.runes, 1)
+			b := c.byteI
+			for k := 0; k < n; k++ {
+				frac := c.adv * float32(k) / float32(n)
+				if odd {
+					stops = append(stops, xs[i]+c.adv-frac)
+				} else {
+					stops = append(stops, xs[i]+frac)
+				}
+				offs = append(offs, b)
+				if k < n-1 && b < len(full) {
+					_, sz := utf8.DecodeRuneInString(full[b:])
+					b += sz
+				}
+			}
+		}
+		endX := x
+		if n := len(cl); n > 0 && cl[n-1].level%2 == 1 && cl[n-1].byteI >= 0 {
+			endX = xs[n-1] // a right-to-left run ends on its left
+		} else if rtl && vis == len(cl) && len(cl) > 0 && cl[len(cl)-1].level%2 == 1 {
+			endX = 0
+		}
+		stops = append(stops, endX)
 		offs = append(offs, end)
-		p.decorate(li, cl, styles, base, y, h, baseline)
+		p.decorate(li, cl, order, xs, styles, base, y, h, baseline)
 		p.Lines = append(p.Lines, Line{
 			First: first, Last: len(p.Glyphs),
 			Top: y, Baseline: baseline, Width: width, Height: h,
-			Start: start, End: end, Stops: stops, Offsets: offs,
+			Start: start, End: end, Stops: stops, Offsets: offs, Clusters: boxes, RTL: rtl,
 		})
 		p.Width = max(p.Width, width)
 		y += h
@@ -304,9 +377,10 @@ func LayoutSpans(spans []Span, base Style, opt Options) *Paragraph {
 			p.Truncated = true
 			break
 		}
-		cl = shapeRuns(runs, pstart, pstart+len(para), cl[:0])
+		var rtl bool
+		cl, rtl = shapeRuns(runs, pstart, pstart+len(para), cl[:0])
 		if len(cl) == 0 {
-			addLine(nil, false, pstart, pstart)
+			addLine(nil, false, pstart, pstart, rtl)
 			continue
 		}
 
@@ -326,11 +400,11 @@ func LayoutSpans(spans []Span, base Style, opt Options) *Paragraph {
 			if last && more {
 				// Last allowed line: take the rest of the paragraph and let the
 				// ellipsis logic trim it to fit.
-				addLine(cl[start:], true, cl[start].byteI, pstart+len(para))
+				addLine(cl[start:], true, cl[start].byteI, pstart+len(para), rtl)
 				p.Truncated = true
 				break
 			}
-			addLine(cl[start:start+end], false, cl[start].byteI, lineEnd)
+			addLine(cl[start:start+end], false, cl[start].byteI, lineEnd, rtl)
 			start += next
 		}
 		if p.Truncated {
@@ -341,8 +415,9 @@ func LayoutSpans(spans []Span, base Style, opt Options) *Paragraph {
 	return p
 }
 
-// decorate records the backgrounds and decoration lines of one line.
-func (p *Paragraph) decorate(li int, cl []cluster, styles []Style, base Style, top, h, baseline float32) {
+// decorate records the backgrounds and decoration lines of one line:
+// one rect per stretch of visually adjacent clusters of the same span.
+func (p *Paragraph) decorate(li int, cl []cluster, order []int, xs []float32, styles []Style, base Style, top, h, baseline float32) {
 	if len(cl) == 0 {
 		return
 	}
@@ -356,27 +431,22 @@ func (p *Paragraph) decorate(li int, cl []cluster, styles []Style, base Style, t
 	if !decorated {
 		return
 	}
-	// Walk runs of clusters with the same span.
-	var x float32
-	i := 0
-	for i < len(cl) {
-		j := i
-		x0 := x
-		for j < len(cl) && cl[j].span == cl[i].span {
-			if j > 0 {
-				x += cl[j].kern
-			}
-			if j == i {
-				x0 = x
-			}
-			x += cl[j].adv
-			j++
+	k := 0
+	for k < len(order) {
+		i0 := order[k]
+		span := cl[i0].span
+		x0 := xs[i0]
+		x1 := x0 + cl[i0].adv
+		k++
+		for k < len(order) && cl[order[k]].span == span {
+			x1 = xs[order[k]] + cl[order[k]].adv
+			k++
 		}
 		st := base // the ellipsis
-		if cl[i].span >= 0 {
-			st = styles[cl[i].span]
+		if span >= 0 {
+			st = styles[span]
 		}
-		w := x - x0
+		w := x1 - x0
 		if st.Background.A > 0 {
 			p.Decorations = append(p.Decorations, DecorationRect{Line: li, Rect: geom.Rect{X: x0, Y: top, W: w, H: h}, Color: st.Background, Behind: true})
 		}
@@ -397,12 +467,57 @@ func (p *Paragraph) decorate(li int, cl []cluster, styles []Style, base Style, t
 				p.Decorations = append(p.Decorations, DecorationRect{Line: li, Rect: geom.Rect{X: x0, Y: baseline - m.Ascent, W: w, H: th}, Color: c})
 			}
 		}
-		i = j
 	}
 }
 
-// shapeRuns shapes the bytes [from, to) of the joined runs.
-func shapeRuns(runs []run, from, to int, out []cluster) []cluster {
+// visualOrder returns the indices of cl in display order (Unicode bidi rule
+// L2: reverse every run at each odd level and above, highest first).
+func visualOrder(cl []cluster) []int {
+	order := make([]int, len(cl))
+	var hi uint8
+	lowOdd := uint8(255)
+	for i, c := range cl {
+		order[i] = i
+		hi = max(hi, c.level)
+		if c.level%2 == 1 {
+			lowOdd = min(lowOdd, c.level)
+		}
+	}
+	if hi == 0 {
+		return order
+	}
+	for lvl := hi; lvl >= lowOdd && lvl > 0; lvl-- {
+		for i := 0; i < len(order); {
+			if cl[order[i]].level < lvl {
+				i++
+				continue
+			}
+			j := i
+			for j < len(order) && cl[order[j]].level >= lvl {
+				j++
+			}
+			for a, b := i, j-1; a < b; a, b = a+1, b-1 {
+				order[a], order[b] = order[b], order[a]
+			}
+			i = j
+		}
+	}
+	return order
+}
+
+// shapeRuns shapes the bytes [from, to) of the joined runs (one hard
+// line). It reports whether the line's direction is right to left.
+func shapeRuns(runs []run, from, to int, out []cluster) ([]cluster, bool) {
+	if needsComplex(runs, from, to) {
+		return shapeComplex(runs, from, to, out)
+	}
+	return shapeSimple(runs, from, to, out), false
+}
+
+// shapeSimple maps each rune to one glyph (cmap + kerning): exact for
+// Latin, Cyrillic, Greek, CJK and other scripts that need no contextual
+// shaping, with fonts that have no ligatures.
+func shapeSimple(runs []run, from, to int, out []cluster) []cluster {
 	var prev cluster
 	var x float32 // pen position from the start of the hard line (tab stops)
 	for si, r := range runs {
@@ -440,13 +555,18 @@ func shapeRune(st Style, r rune, byteI int, x float32) cluster {
 		next := (float32(math.Floor(float64((x+0.01)/stop))) + 1) * stop
 		adv = next - x
 	}
-	return cluster{r: r, g: g, adv: adv, space: unicode.IsSpace(r), byteI: byteI, font: face, size: st.Size}
+	n := utf8.RuneLen(r)
+	if tab || n < 0 {
+		n = 1
+	}
+	return cluster{r: r, g: g, adv: adv, space: unicode.IsSpace(r), byteI: byteI, byteEnd: byteI + n, runes: 1, font: face, size: st.Size}
 }
 
 // shape converts runes of one style to glyph clusters with advances and
 // kerning.
 func shape(st Style, s string, base int, out []cluster) []cluster {
-	return shapeRuns([]run{{text: s, start: base, style: st}}, base, base+len(s), out)
+	out, _ = shapeRuns([]run{{text: s, start: base, style: st}}, base, base+len(s), out)
+	return out
 }
 
 // breakLine finds how many clusters fit on one line. It returns the visual end
@@ -508,6 +628,10 @@ func withEllipsis(base Style, cl []cluster, ell string, maxW float32) []cluster 
 func (p *Paragraph) SetAlign(a Align, boxWidth float32) {
 	for i := range p.Lines {
 		l := &p.Lines[i]
+		// Start and End follow the paragraph's direction.
+		if l.RTL && a != AlignCenter {
+			a = AlignEnd - a
+		}
 		switch a {
 		case AlignCenter:
 			l.X = (boxWidth - l.Width) / 2

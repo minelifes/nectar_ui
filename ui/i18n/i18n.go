@@ -367,4 +367,3 @@ func T(ctx widgets.BuildContext, key string, args ...any) string { return Of(ctx
 func N(ctx widgets.BuildContext, key string, n int, args ...any) string {
 	return Of(ctx).N(key, n, args...)
 }
-

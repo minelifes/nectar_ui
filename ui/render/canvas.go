@@ -165,13 +165,38 @@ func (c *Canvas) DrawIcon(ic *vector.Icon, r geom.Rect, color geom.Color) {
 }
 
 // DrawParagraph draws laid-out text with its top-left corner at origin.
+//
+// Span backgrounds are drawn under the glyphs and decoration lines
+// (underline, strikethrough) over them.
 func (c *Canvas) DrawParagraph(p *text.Paragraph, origin geom.Offset) {
-	if p == nil || len(p.Glyphs) == 0 {
+	if p == nil {
 		return
 	}
-	c.add(Command{
-		Kind:  CmdText,
-		Rect:  geom.Rect{X: origin.X, Y: origin.Y, W: p.Width, H: p.Height},
-		Color: p.Style.Color, Text: p,
-	})
+	c.drawDecorations(p, origin, true)
+	if len(p.Glyphs) > 0 {
+		color := p.Style.Color
+		if p.Rich {
+			// Glyphs carry their own colors; the command's alpha is the
+			// opacity applied to them all.
+			color = geom.Color{R: 1, G: 1, B: 1, A: 1}
+		}
+		c.add(Command{
+			Kind:  CmdText,
+			Rect:  geom.Rect{X: origin.X, Y: origin.Y, W: p.Width, H: p.Height},
+			Color: color, Text: p,
+		})
+	}
+	c.drawDecorations(p, origin, false)
+}
+
+func (c *Canvas) drawDecorations(p *text.Paragraph, origin geom.Offset, behind bool) {
+	for _, d := range p.Decorations {
+		if d.Behind != behind || d.Line >= len(p.Lines) {
+			continue
+		}
+		r := d.Rect
+		r.X += origin.X + p.Lines[d.Line].X
+		r.Y += origin.Y
+		c.FillRect(r, d.Color)
+	}
 }

@@ -11,7 +11,7 @@ import (
 // It uses the same shaping as Layout, so carets line up with drawn glyphs.
 func CaretStops(line string, style Style) (stops []float32, offsets []int) {
 	style = style.Resolved()
-	cl := shape(style.Font, style.Size, style.LetterSpacing, line, 0, nil)
+	cl := shape(style, line, 0, nil)
 	stops = make([]float32, 0, len(cl)+1)
 	offsets = make([]int, 0, len(cl)+1)
 	var x float32
@@ -70,7 +70,7 @@ func LineBreaks(line string, style Style, maxW float32) []int {
 		return breaks
 	}
 	style = style.Resolved()
-	cl := shape(style.Font, style.Size, style.LetterSpacing, line, 0, nil)
+	cl := shape(style, line, 0, nil)
 	for start := 0; start < len(cl); {
 		_, next := breakLine(cl[start:], maxW)
 		if next <= 0 {

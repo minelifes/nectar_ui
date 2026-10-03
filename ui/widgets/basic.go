@@ -42,27 +42,36 @@ func (w Text) Build(ctx BuildContext) Widget {
 	return paragraph{text: w.Text, style: style, align: w.Align, maxLines: w.MaxLines, ellipsis: ell}
 }
 
-func mergeStyle(base, s text.Style) text.Style {
-	if s.Font == nil {
-		s.Font = base.Font
-	}
-	if s.Size == 0 {
-		s.Size = base.Size
-	}
-	if s.Color == (geom.Color{}) {
-		s.Color = base.Color
-	}
-	if s.LineHeight == 0 {
-		s.LineHeight = base.LineHeight
-	}
-	if s.LetterSpacing == 0 {
-		s.LetterSpacing = base.LetterSpacing
-	}
-	return s
+// RichText displays styled runs of text in one paragraph: words in bold,
+// a link color, highlighted matches, syntax colors. Each span's unset style
+// fields inherit from Style, whose unset fields inherit from the nearest
+// DefaultTextStyle.
+type RichText struct {
+	Spans    []text.Span
+	Style    text.Style
+	Align    text.Align
+	MaxLines int
+	Ellipsis bool
 }
+
+func (w RichText) Build(ctx BuildContext) Widget {
+	style := w.Style
+	if def, ok := DependOn[DefaultTextStyle](ctx); ok {
+		style = mergeStyle(def.Style, style)
+	}
+	ell := ""
+	if w.Ellipsis {
+		ell = "…"
+	}
+	return paragraph{spans: w.Spans, rich: true, style: style, align: w.Align, maxLines: w.MaxLines, ellipsis: ell}
+}
+
+func mergeStyle(base, s text.Style) text.Style { return s.Inherit(base) }
 
 // paragraph is the render-object widget behind Text.
 type paragraph struct {
+	spans    []text.Span
+	rich     bool
 	text     string
 	style    text.Style
 	align    text.Align
@@ -79,6 +88,10 @@ func (w paragraph) CreateRenderObject(BuildContext) render.RenderObject {
 func (paragraph) MarksOwnPaint() {}
 
 func (w paragraph) UpdateRenderObject(_ BuildContext, ro render.RenderObject) {
+	if w.rich {
+		ro.(*render.RenderParagraph).UpdateSpans(w.spans, w.style, w.align, w.maxLines, w.ellipsis)
+		return
+	}
 	ro.(*render.RenderParagraph).Update(w.text, w.style, w.align, w.maxLines, w.ellipsis)
 }
 

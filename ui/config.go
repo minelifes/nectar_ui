@@ -23,8 +23,9 @@ type Config struct {
 	// WithCustomTitleBar.
 	CustomTitleBar bool
 
-	mounts    []resourceMount
-	devMounts []devMount
+	mounts      []resourceMount
+	devMounts   []devMount
+	windowState *windowStateConfig
 }
 
 type devMount struct {

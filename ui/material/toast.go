@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/minelifes/nectar_ui/ui/geom"
+	"github.com/minelifes/nectar_ui/ui/tasks"
 	"github.com/minelifes/nectar_ui/ui/vector"
 	w "github.com/minelifes/nectar_ui/ui/widgets"
 )
@@ -283,4 +284,54 @@ func (c ToastCard) Build(ctx w.BuildContext) w.Widget {
 	return w.AbsorbPointer{Child: Surface{Color: pick(st.BackgroundColor, sc.SurfaceContainerHigh), Radius: pickF(st.Radius, CornerMedium),
 		Elevation: pickI(st.Elevation, 3), ShadowColor: st.ShadowColor,
 		Child: w.Padding{Padding: geom.InsetsLTRB(14, 12, 12, 12), Child: w.Row{Cross: w.CrossStart, Spacing: 12, Children: row}}}}
+}
+
+// ShowTaskToast shows a toast that follows a background task: its title,
+// status and progress while it runs (with a Cancel button), then whether
+// it succeeded or failed.
+func ShowTaskToast(ctx w.BuildContext, t *tasks.Task) *ToastHandle {
+	owner := ctx.Owner()
+	view := func() Toast {
+		switch t.State() {
+		case tasks.Done:
+			return Toast{Title: t.Title(), Message: "Done", Kind: ToastSuccess}
+		case tasks.Failed:
+			msg := "Failed"
+			if err := t.Err(); err != nil {
+				msg = err.Error()
+			}
+			return Toast{Title: t.Title(), Message: msg, Kind: ToastError, Duration: 10 * time.Second}
+		case tasks.Cancelled:
+			return Toast{Title: t.Title(), Message: "Cancelled", Kind: ToastPlain}
+		}
+		p := t.Progress()
+		return Toast{Title: t.Title(), Message: t.Status(), Kind: ToastPlain, Progress: max(p, 0.001), Busy: p < 0,
+			Actions: []ToastAction{{Label: "Cancel", OnPressed: t.Cancel}}}
+	}
+	h := ShowToast(ctx, view())
+	var mu sync.Mutex
+	pending := false
+	var cancel func()
+	cancel = t.Subscribe(func() {
+		mu.Lock()
+		if pending {
+			mu.Unlock()
+			return
+		}
+		pending = true
+		mu.Unlock()
+		owner.Post(func() {
+			mu.Lock()
+			pending = false
+			mu.Unlock()
+			if h.gone {
+				return
+			}
+			h.Update(view())
+			if t.State() != tasks.Running {
+				cancel()
+			}
+		})
+	})
+	return h
 }

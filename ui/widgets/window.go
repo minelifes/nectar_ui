@@ -1,5 +1,11 @@
 package widgets
 
+import (
+	"errors"
+
+	"github.com/minelifes/nectar_ui/ui/geom"
+)
+
 // Window controls the native window the app runs in. Get it from any
 // widget with WindowOf(ctx):
 //
@@ -75,3 +81,26 @@ func (noWindow) Maximize()              {}
 func (noWindow) Minimize()              {}
 func (noWindow) Close()                 {}
 func (noWindow) TitleBar() TitleBarInfo { return TitleBarInfo{} }
+
+// WindowOptions describe a window opened with OpenWindow.
+type WindowOptions struct {
+	Title         string
+	Width, Height int        // logical pixels; 0 = 640×480
+	Background    geom.Color // zero = the app's
+}
+
+// ErrNoWindows is reported where windows can't be opened (tests).
+var ErrNoWindows = errors.New("widgets: can't open windows here")
+
+// OpenWindow opens another native window showing root, with its own widget
+// tree. done (optional) gets the new window on the UI goroutine.
+func OpenWindow(ctx BuildContext, opt WindowOptions, root Widget, done func(Window, error)) {
+	if done == nil {
+		done = func(Window, error) {}
+	}
+	if o := ctx.Owner(); o.OpenWindow != nil {
+		o.OpenWindow(opt, root, done)
+		return
+	}
+	done(nil, ErrNoWindows)
+}

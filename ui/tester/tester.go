@@ -181,6 +181,13 @@ func (t *Tester) Key(k widgets.KeyCode, mods ...widgets.Modifiers) {
 	t.Pump()
 }
 
+// DropFiles simulates files dropped from the OS file manager at (x, y).
+func (t *Tester) DropFiles(paths []string, x, y float32) bool {
+	ok := t.Build.DropFiles(paths, geom.Pt(x, y))
+	t.Pump()
+	return ok
+}
+
 // Type sends text input to the focused widget.
 func (t *Tester) Type(s string) {
 	t.Build.Focus().HandleText(s)
@@ -194,6 +201,10 @@ func (t *Tester) Texts() []string {
 	var walk func(ro render.RenderObject)
 	walk = func(ro render.RenderObject) {
 		switch r := ro.(type) {
+		case *render.RenderOffstage:
+			if r.Offstage {
+				return
+			}
 		case *render.RenderParagraph:
 			out = append(out, r.Text())
 		case *render.RenderEditable:
@@ -219,6 +230,10 @@ func (t *Tester) Find(s string) (geom.Rect, bool) {
 		switch x := ro.(type) {
 		case *render.RenderOpacity:
 			if x.Opacity <= 0 {
+				return
+			}
+		case *render.RenderOffstage:
+			if x.Offstage {
 				return
 			}
 		case *render.RenderSizeFactor, *render.RenderClipRect, *render.RenderViewport:

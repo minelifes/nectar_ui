@@ -236,6 +236,7 @@ type Theme struct {
 	NavigationRail   NavigationRailTheme
 	NavigationDrawer NavigationDrawerTheme
 	TabBar           TabBarTheme
+	Dock             DockTheme
 	BottomAppBar     BottomAppBarTheme
 	TitleBar         TitleBarTheme
 

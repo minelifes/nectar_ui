@@ -233,7 +233,7 @@ func (s *quickPickState) Build(ctx w.BuildContext) w.Widget {
 			OnSubmitted: func(string) { s.pick() }},
 	}}
 	if s.ctrl.Text() == "" && qp.Placeholder != "" {
-		input.Children = append(input.Children, w.IgnorePointer{Child: w.Text{Text: qp.Placeholder,
+		input.Children = append(input.Children, w.IgnorePointer{Ignoring: true, Child: w.Text{Text: qp.Placeholder,
 			Style: pickTC(st.InputStyle, th.Text.BodyLarge, sc.OnSurfaceVariant), MaxLines: 1}})
 	}
 	rows := len(s.items)

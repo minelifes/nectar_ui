@@ -25,8 +25,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/minelifes/nectar_ui/internal/gogpu/internal/platform/x11"
 	"github.com/gogpu/gpucontext"
+	"github.com/minelifes/nectar_ui/internal/gogpu/internal/platform/x11"
 )
 
 // startXDNDDrag initiates an XDND drag session from the given X11 platform.

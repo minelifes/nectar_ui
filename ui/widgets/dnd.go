@@ -267,10 +267,22 @@ func (s *dragTargetState) Build(ctx BuildContext) Widget {
 // Files dropped from the OS
 
 // FileDropTarget receives files dragged from the system file manager and
-// dropped on it.
+// dropped on it. While files are dragged over it, OnEnter, OnMove and
+// OnLeave report it (to highlight the drop zone); the innermost target
+// under the pointer gets them. OnEnter's paths can be empty: on X11 the
+// file list only arrives with the drop.
 type FileDropTarget struct {
-	OnDrop func(paths []string, local geom.Offset)
-	Child  Widget
+	OnDrop  func(paths []string, local geom.Offset)
+	OnEnter func(paths []string, local geom.Offset)
+	OnMove  func(local geom.Offset)
+	OnLeave func()
+	Child   Widget
+}
+
+// fileDragState is the OS file drag in progress.
+type fileDragState struct {
+	paths []string
+	over  *fileDropState
 }
 
 func (FileDropTarget) CreateState() State { return &fileDropState{} }
@@ -285,14 +297,13 @@ func (s *fileDropState) InitState() {
 func (s *fileDropState) Dispose() {
 	o := s.Context().Owner()
 	o.fileTargets = slices.DeleteFunc(o.fileTargets, func(t *fileDropState) bool { return t == s })
+	if o.fileDrag.over == s {
+		o.fileDrag.over = nil
+	}
 }
 
-func (s *fileDropState) Build(BuildContext) Widget { return WidgetOf[FileDropTarget](s).Child }
-
-// DropFiles delivers files dropped from the OS at pos (window coordinates,
-// logical pixels) to the innermost FileDropTarget there. Returns whether
-// one took them. The app calls it; tests can too.
-func (o *BuildOwner) DropFiles(paths []string, pos geom.Offset) bool {
+// fileTargetAt returns the innermost FileDropTarget under pos.
+func (o *BuildOwner) fileTargetAt(pos geom.Offset) *fileDropState {
 	var best *fileDropState
 	bestDepth := -1
 	for _, t := range o.fileTargets {
@@ -304,11 +315,80 @@ func (o *BuildOwner) DropFiles(paths []string, pos geom.Offset) bool {
 			best, bestDepth = t, d
 		}
 	}
+	return best
+}
+
+func localTo(t *fileDropState, pos geom.Offset) geom.Offset {
+	return pos.Sub(render.GlobalOrigin(t.Context().RenderObject()))
+}
+
+// FileDragEnter reports files from the OS entering the window at pos (the
+// app calls it; tests can too). Some platforms (X11) report neither the
+// files nor the position on entry: a pathless enter at the origin waits
+// for the first move.
+func (o *BuildOwner) FileDragEnter(paths []string, pos geom.Offset) {
+	o.fileDrag.paths = paths
+	o.fileDrag.over = nil
+	if len(paths) == 0 && pos == (geom.Offset{}) {
+		return
+	}
+	o.FileDragMove(pos)
+}
+
+// FileDragMove reports the dragged files moving to pos.
+func (o *BuildOwner) FileDragMove(pos geom.Offset) {
+	t := o.fileTargetAt(pos)
+	fd := &o.fileDrag
+	if t != fd.over {
+		if old := fd.over; old != nil {
+			if cb := WidgetOf[FileDropTarget](old).OnLeave; cb != nil {
+				cb()
+			}
+		}
+		fd.over = t
+		if t != nil {
+			if cb := WidgetOf[FileDropTarget](t).OnEnter; cb != nil {
+				cb(fd.paths, localTo(t, pos))
+			}
+		}
+		return
+	}
+	if t != nil {
+		if cb := WidgetOf[FileDropTarget](t).OnMove; cb != nil {
+			cb(localTo(t, pos))
+		}
+	}
+}
+
+// FileDragLeave reports the dragged files leaving the window.
+func (o *BuildOwner) FileDragLeave() {
+	if old := o.fileDrag.over; old != nil {
+		if cb := WidgetOf[FileDropTarget](old).OnLeave; cb != nil {
+			cb()
+		}
+	}
+	o.fileDrag = fileDragState{}
+}
+
+func (s *fileDropState) Build(BuildContext) Widget { return WidgetOf[FileDropTarget](s).Child }
+
+// DropFiles delivers files dropped from the OS at pos (window coordinates,
+// logical pixels) to the innermost FileDropTarget there. Returns whether
+// one took them. The app calls it; tests can too.
+func (o *BuildOwner) DropFiles(paths []string, pos geom.Offset) bool {
+	best := o.fileTargetAt(pos)
+	// A target the drag was over other than the one dropped on loses it.
+	if old := o.fileDrag.over; old != nil && old != best {
+		if cb := WidgetOf[FileDropTarget](old).OnLeave; cb != nil {
+			cb()
+		}
+	}
+	o.fileDrag = fileDragState{}
 	if best == nil {
 		return false
 	}
 	if cb := WidgetOf[FileDropTarget](best).OnDrop; cb != nil {
-		cb(paths, pos.Sub(render.GlobalOrigin(best.Context().RenderObject())))
+		cb(paths, localTo(best, pos))
 	}
 	return true
 }

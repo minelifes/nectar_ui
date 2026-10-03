@@ -26,6 +26,13 @@ listed here:
    `SetMaxSize`, `Maximize`, `IsMaximized`, `Minimize`, `SetFullscreen` and
    `IsFullscreen`, forwarding to the platform window the primary window
    already uses. (`window_manager.go`)
+3. **File drag hover.** `App.OnFileDrag` reports enter / move / leave / drop
+   of files dragged from the OS (the backends already produced these events
+   on macOS, X11 and Wayland; they were dropped). Windows gets an OLE
+   `IDropTarget` (64-bit), with `WM_DROPFILES` as the fallback. Drag
+   positions are logical pixels on every platform (X11 and Windows
+   reported physical ones). (`app.go`, `platform_linux.go`,
+   `platform_windows.go`, new `drop_target_windows*.go`)
 
 ## Updating
 

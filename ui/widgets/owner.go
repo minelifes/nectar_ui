@@ -40,6 +40,7 @@ type BuildOwner struct {
 	focus       *FocusManager
 	drag        *dragManager
 	fileTargets []*fileDropState
+	fileDrag    fileDragState
 	stats       FrameStats
 	rebuilds    int
 

@@ -201,6 +201,27 @@ func (t *Tester) Key(k widgets.KeyCode, mods ...widgets.Modifiers) {
 	t.Pump()
 }
 
+// DragFiles simulates files from the OS file manager dragged in at the
+// first point, moved through the others, and dropped at the last (with
+// drop false they leave the window instead).
+func (t *Tester) DragFiles(paths []string, drop bool, points ...geom.Offset) {
+	if len(points) == 0 {
+		return
+	}
+	t.Build.FileDragEnter(paths, points[0])
+	t.Pump()
+	for _, p := range points[1:] {
+		t.Build.FileDragMove(p)
+		t.Pump()
+	}
+	if drop {
+		t.DropFiles(paths, points[len(points)-1].X, points[len(points)-1].Y)
+	} else {
+		t.Build.FileDragLeave()
+		t.Pump()
+	}
+}
+
 // DropFiles simulates files dropped from the OS file manager at (x, y).
 func (t *Tester) DropFiles(paths []string, x, y float32) bool {
 	ok := t.Build.DropFiles(paths, geom.Pt(x, y))

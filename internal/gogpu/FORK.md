@@ -22,6 +22,10 @@ listed here:
    check state; Windows shows the shortcut right-aligned and the check
    mark. (`menu.go`, `app.go`, `internal/platform/platform.go`,
    `platform_darwin.go`, `menu_windows.go`)
+2. **Secondary window control.** `Window` gets `SetMinSize`,
+   `SetMaxSize`, `Maximize`, `IsMaximized`, `Minimize`, `SetFullscreen` and
+   `IsFullscreen`, forwarding to the platform window the primary window
+   already uses. (`window_manager.go`)
 
 ## Updating
 

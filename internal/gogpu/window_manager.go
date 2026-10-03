@@ -5,9 +5,9 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/minelifes/nectar_ui/internal/gogpu/internal/platform"
 	"github.com/gogpu/gpucontext"
 	"github.com/gogpu/wgpu"
+	"github.com/minelifes/nectar_ui/internal/gogpu/internal/platform"
 )
 
 // WindowID uniquely identifies a window within the application. Zero is invalid.
@@ -171,6 +171,46 @@ func (w *Window) SetPosition(x, y int) {
 		w.platWindow.SetPosition(x, y)
 	}
 }
+
+// SetMinSize / SetMaxSize limit the window's logical size (0 = no limit).
+func (w *Window) SetMinSize(width, height int) {
+	if w.platWindow != nil {
+		w.platWindow.SetMinSize(width, height)
+	}
+}
+
+func (w *Window) SetMaxSize(width, height int) {
+	if w.platWindow != nil {
+		w.platWindow.SetMaxSize(width, height)
+	}
+}
+
+// Maximize toggles between maximized and restored.
+func (w *Window) Maximize() {
+	if w.platWindow != nil {
+		w.platWindow.Maximize()
+	}
+}
+
+// IsMaximized reports whether the window is maximized.
+func (w *Window) IsMaximized() bool { return w.platWindow != nil && w.platWindow.IsMaximized() }
+
+// Minimize minimizes the window.
+func (w *Window) Minimize() {
+	if w.platWindow != nil {
+		w.platWindow.Minimize()
+	}
+}
+
+// SetFullscreen enters or leaves fullscreen.
+func (w *Window) SetFullscreen(on bool) {
+	if w.platWindow != nil {
+		w.platWindow.SetFullscreen(on)
+	}
+}
+
+// IsFullscreen reports whether the window is fullscreen.
+func (w *Window) IsFullscreen() bool { return w.platWindow != nil && w.platWindow.IsFullscreen() }
 
 // SetSize resizes the window content area to the given logical size (DIP).
 func (w *Window) SetSize(width, height int) {

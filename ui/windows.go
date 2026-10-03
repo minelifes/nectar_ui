@@ -5,8 +5,8 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/minelifes/nectar_ui/internal/gogpu"
 	"github.com/gogpu/gpucontext"
+	"github.com/minelifes/nectar_ui/internal/gogpu"
 
 	"github.com/minelifes/nectar_ui/ui/render"
 	"github.com/minelifes/nectar_ui/ui/widgets"
@@ -52,10 +52,11 @@ type secondaryWindow struct {
 	root     *widgets.Root
 	input    *inputQueue
 
-	mu            sync.Mutex
-	width, height int
-	title         string
-	closed        bool
+	mu                    sync.Mutex
+	width, height         int
+	title                 string
+	closed                bool
+	fullscreen, maximized bool
 }
 
 // newWindow creates the platform window and its tree (main thread).
@@ -101,6 +102,7 @@ func (a *App) newWindow(g *gogpu.App, cfg Config, root widgets.Widget) (*seconda
 		sw.mu.Lock()
 		sw.width, sw.height = w, h
 		sw.mu.Unlock()
+		sw.refresh()
 	})
 	gw.SetOnClose(func() bool {
 		a.Post(sw.dispose)
@@ -187,8 +189,13 @@ func (sw *secondaryWindow) SetSize(w, h int) {
 	sw.app.window.do(func(*gogpu.App) { sw.gw.SetSize(w, h) })
 }
 
-func (sw *secondaryWindow) SetMinSize(int, int) {}
-func (sw *secondaryWindow) SetMaxSize(int, int) {}
+func (sw *secondaryWindow) SetMinSize(w, h int) {
+	sw.app.window.do(func(*gogpu.App) { sw.gw.SetMinSize(w, h) })
+}
+
+func (sw *secondaryWindow) SetMaxSize(w, h int) {
+	sw.app.window.do(func(*gogpu.App) { sw.gw.SetMaxSize(w, h) })
+}
 
 func (sw *secondaryWindow) Title() string {
 	sw.mu.Lock()
@@ -196,19 +203,44 @@ func (sw *secondaryWindow) Title() string {
 	return sw.title
 }
 
-// SetTitle records the title (the windowing layer can't retitle secondary
-// windows yet).
 func (sw *secondaryWindow) SetTitle(t string) {
 	sw.mu.Lock()
 	sw.title = t
 	sw.mu.Unlock()
+	sw.app.window.do(func(*gogpu.App) { sw.gw.SetTitle(t) })
 }
 
-func (sw *secondaryWindow) IsFullscreen() bool { return false }
-func (sw *secondaryWindow) SetFullscreen(bool) {}
-func (sw *secondaryWindow) IsMaximized() bool  { return false }
-func (sw *secondaryWindow) Maximize()          {}
-func (sw *secondaryWindow) Minimize()          {}
+func (sw *secondaryWindow) IsFullscreen() bool {
+	sw.mu.Lock()
+	defer sw.mu.Unlock()
+	return sw.fullscreen
+}
+
+func (sw *secondaryWindow) SetFullscreen(on bool) {
+	sw.app.window.do(func(*gogpu.App) { sw.gw.SetFullscreen(on); sw.refresh() })
+}
+
+func (sw *secondaryWindow) IsMaximized() bool {
+	sw.mu.Lock()
+	defer sw.mu.Unlock()
+	return sw.maximized
+}
+
+func (sw *secondaryWindow) Maximize() {
+	sw.app.window.do(func(*gogpu.App) { sw.gw.Maximize(); sw.refresh() })
+}
+
+func (sw *secondaryWindow) Minimize() {
+	sw.app.window.do(func(*gogpu.App) { sw.gw.Minimize() })
+}
+
+// refresh caches the window state (main thread).
+func (sw *secondaryWindow) refresh() {
+	fs, mx := sw.gw.IsFullscreen(), sw.gw.IsMaximized()
+	sw.mu.Lock()
+	sw.fullscreen, sw.maximized = fs, mx
+	sw.mu.Unlock()
+}
 
 func (sw *secondaryWindow) Close() {
 	sw.app.window.do(func(*gogpu.App) {

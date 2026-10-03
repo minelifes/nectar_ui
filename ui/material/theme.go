@@ -225,6 +225,7 @@ type Theme struct {
 	Input        InputDecorationTheme
 	SearchBar    SearchBarTheme
 	Menu         MenuTheme
+	QuickPick    QuickPickTheme
 	DropdownMenu DropdownMenuTheme
 	DatePicker   DatePickerTheme
 	TimePicker   TimePickerTheme

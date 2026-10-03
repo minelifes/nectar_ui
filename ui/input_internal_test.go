@@ -3,6 +3,7 @@ package ui
 import (
 	"testing"
 
+	"github.com/gogpu/gpucontext"
 	"github.com/minelifes/nectar_ui/ui/tester"
 	"github.com/minelifes/nectar_ui/ui/widgets"
 )
@@ -90,5 +91,19 @@ func TestTypingStillWorks(t *testing.T) {
 	send(tt, q, txt("你"))
 	if got := ctrl.Text(); got != "aBé@你" {
 		t.Fatalf("typed %q", got)
+	}
+}
+
+func TestConvertKeyCoversShortcutKeys(t *testing.T) {
+	cases := map[gpucontext.Key]widgets.KeyCode{
+		gpucontext.KeyA: widgets.KeyA, gpucontext.Key7: widgets.Key7, gpucontext.KeyDown: widgets.KeyDown,
+		gpucontext.KeyF1: widgets.KeyF1, gpucontext.KeyF12: widgets.KeyF12,
+		gpucontext.KeyMinus: widgets.KeyMinus, gpucontext.KeySlash: widgets.KeySlash, gpucontext.KeyGrave: widgets.KeyGrave,
+		gpucontext.KeyNumpadEnter: widgets.KeyEnter, gpucontext.KeyF13: widgets.KeyUnknown,
+	}
+	for in, want := range cases {
+		if got := convertKey(in); got != want {
+			t.Errorf("convertKey(%d) = %d, want %d", in, got, want)
+		}
 	}
 }

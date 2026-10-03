@@ -26,4 +26,4 @@ type RenderSemantics struct {
 }
 
 func (r *RenderSemantics) PerformLayout(c geom.Constraints) geom.Size { return layoutProxy(r.child, c) }
-func (r *RenderSemantics) Paint(ctx *PaintContext, o geom.Offset)   { ctx.PaintChild(r.child, o) }
+func (r *RenderSemantics) Paint(ctx *PaintContext, o geom.Offset)     { ctx.PaintChild(r.child, o) }

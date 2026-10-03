@@ -27,7 +27,9 @@ func hostGet(kptr unsafe.Pointer, klen uint32) uint64
 //go:wasmimport nectar storage_set
 func hostSet(kptr unsafe.Pointer, klen uint32, vptr unsafe.Pointer, vlen uint32) int32
 
-func ptr(s string) (unsafe.Pointer, uint32) { return unsafe.Pointer(unsafe.StringData(s)), uint32(len(s)) }
+func ptr(s string) (unsafe.Pointer, uint32) {
+	return unsafe.Pointer(unsafe.StringData(s)), uint32(len(s))
+}
 
 func log(s string)                 { p, n := ptr(s); hostLog(p, n) }
 func notify(kind uint32, s string) { p, n := ptr(s); hostNotify(kind, p, n) }

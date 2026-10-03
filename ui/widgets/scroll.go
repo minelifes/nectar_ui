@@ -1,6 +1,7 @@
 package widgets
 
 import (
+	"sort"
 	"time"
 
 	"github.com/minelifes/nectar_ui/ui/geom"
@@ -9,7 +10,7 @@ import (
 
 // ScrollController reads and drives the offset of a scroll view.
 type ScrollController struct {
-	vp        *render.RenderViewport
+	vp        render.ScrollAxis
 	offset    float32
 	listeners []func()
 
@@ -108,14 +109,22 @@ func (c *ScrollController) stopAnim() {
 }
 
 func (c *ScrollController) attach(vp *render.RenderViewport, owner *BuildOwner) {
+	c.attachAxis(vp, owner)
+	vp.OnMetrics = func(extent, content float32) { c.metrics(extent, content) }
+}
+
+// attachAxis connects the controller to a scrollable axis; the owner of the
+// axis calls metrics after each layout.
+func (c *ScrollController) attachAxis(vp render.ScrollAxis, owner *BuildOwner) {
 	c.vp, c.owner = vp, owner
 	vp.SetScrollOffset(c.offset)
-	vp.OnMetrics = func(extent, content float32) {
-		if extent != c.lastExtent || content != c.lastCt {
-			c.lastExtent, c.lastCt = extent, content
-			c.offset = vp.Offset()
-			c.notify()
-		}
+}
+
+func (c *ScrollController) metrics(extent, content float32) {
+	if extent != c.lastExtent || content != c.lastCt {
+		c.lastExtent, c.lastCt = extent, content
+		c.offset = c.vp.Offset()
+		c.notify()
 	}
 }
 
@@ -130,6 +139,10 @@ type ScrollView struct {
 	Padding    geom.EdgeInsets
 	ThumbColor geom.Color // scrollbar; zero = none
 	Child      Widget
+
+	// strictAxis: a horizontal view ignores vertical wheel deltas (by
+	// default a plain mouse wheel scrolls horizontal lists too).
+	strictAxis bool
 }
 
 func (ScrollView) CreateState() State { return &scrollState{} }
@@ -172,12 +185,12 @@ func (s *scrollState) Build(ctx BuildContext) Widget {
 			d := e.Scroll.Y
 			if w.Horizontal {
 				d = e.Scroll.X
-				if d == 0 {
+				if d == 0 && (!w.strictAxis || Modifiers(e.Mods).Shift()) {
 					d = e.Scroll.Y
 				}
 			}
 			if ctrl.ScrollBy(d) && ctrl.vp != nil {
-				e.Claim(ctrl.vp)
+				e.Claim(ctrl.vp.Viewport())
 			}
 		},
 		Child: GestureDetector{
@@ -218,7 +231,7 @@ func (w viewport) UpdateRenderObject(_ BuildContext, ro render.RenderObject) {
 		r.ThumbColor = w.thumb
 		render.MarkNeedsPaint(r)
 	}
-	if w.ctrl.vp != r {
+	if w.ctrl.vp != render.ScrollAxis(r) {
 		w.ctrl.attach(r, w.owner)
 	}
 }
@@ -238,14 +251,22 @@ func (w ListView) Build(BuildContext) Widget {
 		Child: Flex{Direction: axisOf(w.Horizontal), Cross: CrossStretch, Spacing: w.Spacing, ShrinkMain: true, Children: w.Children}}
 }
 
-// ListViewBuilder lazily builds only the visible rows of a long list. All
-// rows are ItemExtent tall (wide, if horizontal).
+// ListViewBuilder lazily builds only the visible rows of a long list. Rows
+// are ItemExtent tall (wide, if horizontal), or ItemExtentOf(i) when that's
+// set (rows of different, known sizes: section headers, wrapped lines).
 type ListViewBuilder struct {
 	Horizontal bool
 	Controller *ScrollController
 	ItemCount  int
 	ItemExtent float32
-	Builder    func(ctx BuildContext, index int) Widget
+	// ItemExtentOf gives each row its own extent (overrides ItemExtent).
+	// It's called for every row on each build, so keep it cheap.
+	ItemExtentOf func(index int) float32
+	Builder      func(ctx BuildContext, index int) Widget
+	// IsHeader marks section headers (vertical lists): the header of the
+	// section at the top stays pinned there while its rows scroll under
+	// it, and the next header pushes it away.
+	IsHeader   func(index int) bool
 	ThumbColor geom.Color
 }
 
@@ -255,6 +276,9 @@ type lazyListState struct {
 	StateBase
 	ctrl       *ScrollController
 	first, end int
+	pinned     int     // pinned header row (-1 = none)
+	pinY       float32 // its position (≤ 0 when pushed up)
+	starts     []float32
 }
 
 func (s *lazyListState) InitState() {
@@ -262,17 +286,68 @@ func (s *lazyListState) InitState() {
 	if s.ctrl == nil {
 		s.ctrl = NewScrollController()
 	}
+	s.pinned = -1
 	s.ctrl.AddListener(func() {
-		if f, e := s.visible(); f != s.first || e != s.end {
+		s.measure()
+		f, e := s.visible()
+		p, py := s.pinnedHeader(f)
+		if f != s.first || e != s.end || p != s.pinned || py != s.pinY {
 			s.SetState(nil)
 		}
 	})
 }
 
+// measure computes the start of every row (variable extents only).
+func (s *lazyListState) measure() {
+	w := WidgetOf[ListViewBuilder](s)
+	if w.ItemExtentOf == nil {
+		s.starts = nil
+		return
+	}
+	n := max(w.ItemCount, 0)
+	if cap(s.starts) < n+1 {
+		s.starts = make([]float32, n+1)
+	}
+	s.starts = s.starts[:n+1]
+	var y float32
+	for i := 0; i < n; i++ {
+		s.starts[i] = y
+		y += max(w.ItemExtentOf(i), 0)
+	}
+	s.starts[n] = y
+}
+
+// start returns the offset of row i.
+func (s *lazyListState) start(i int) float32 {
+	if s.starts != nil {
+		return s.starts[min(max(i, 0), len(s.starts)-1)]
+	}
+	return float32(i) * WidgetOf[ListViewBuilder](s).ItemExtent
+}
+
+func (s *lazyListState) total() float32 {
+	return s.start(max(WidgetOf[ListViewBuilder](s).ItemCount, 0))
+}
+
+// rowAt returns the row at offset v (clamped to [0, count]).
+func (s *lazyListState) rowAt(v float32) int {
+	w := WidgetOf[ListViewBuilder](s)
+	count := max(w.ItemCount, 0)
+	if !(v > 0) { // also catches NaN
+		return 0
+	}
+	if s.starts == nil {
+		ext := max(w.ItemExtent, 1)
+		// Clamp in float before converting: int(±Inf) and int(NaN) differ
+		// between CPUs (and would overflow).
+		return int(min(v/ext, float32(count)))
+	}
+	return min(sort.Search(count, func(i int) bool { return s.starts[i+1] > v }), count)
+}
+
 // visible returns the range of rows to build (with one screen of slack).
 func (s *lazyListState) visible() (int, int) {
 	w := WidgetOf[ListViewBuilder](s)
-	ext := max(w.ItemExtent, 1)
 	view := s.ctrl.ViewportExtent()
 	if view <= 0 {
 		view = 1000
@@ -282,51 +357,85 @@ func (s *lazyListState) visible() (int, int) {
 	// collapsed) while scrolled far down, and the viewport only clamps it
 	// at the next layout. Clamp it to the new length here, so the rows the
 	// viewport will show are the ones that get built.
-	off := min(s.ctrl.Offset(), float32(count)*ext-view)
-	if !(off > 0) { // also catches NaN
+	off := min(s.ctrl.Offset(), s.total()-view)
+	if !(off > 0) {
 		off = 0
 	}
-	// Clamp in float before converting: int(±Inf) and int(NaN) differ
-	// between CPUs (and would overflow the +1).
-	row := func(v float32) int {
-		if !(v > 0) {
-			return 0
-		}
-		return int(min(v, float32(count)))
-	}
-	first := row((off - view/2) / ext)
-	end := max(first, row((off+view*1.5)/ext+1))
+	first := s.rowAt(off - view/2)
+	end := max(first, min(s.rowAt(off+view*1.5)+1, count))
 	return first, end
+}
+
+// pinnedHeader returns the header to pin at the top and its y in the view.
+func (s *lazyListState) pinnedHeader(int) (int, float32) {
+	w := WidgetOf[ListViewBuilder](s)
+	if w.IsHeader == nil || w.Horizontal || w.ItemCount <= 0 {
+		return -1, 0
+	}
+	off := max(s.ctrl.Offset(), 0)
+	top := s.rowAt(off)
+	h := -1
+	for i := min(top, w.ItemCount-1); i >= 0; i-- {
+		if w.IsHeader(i) {
+			h = i
+			break
+		}
+	}
+	if h < 0 || (s.start(h) >= off && h == top) {
+		return -1, 0 // the header is in place on its own
+	}
+	ext := s.start(h+1) - s.start(h)
+	y := float32(0)
+	for i := top + 1; i < w.ItemCount && s.start(i) < off+ext; i++ {
+		if w.IsHeader(i) {
+			y = min(0, s.start(i)-off-ext)
+			break
+		}
+	}
+	return h, y
 }
 
 func (s *lazyListState) Build(ctx BuildContext) Widget {
 	w := WidgetOf[ListViewBuilder](s)
+	s.measure()
 	s.first, s.end = s.visible()
-	ext := w.ItemExtent
-	spacer := func(n int) Widget {
+	extent := func(i int) float32 { return s.start(i+1) - s.start(i) }
+	spacer := func(v float32) Widget {
 		if w.Horizontal {
-			return SizedBox{Width: float32(n) * ext}
+			return SizedBox{Width: v}
 		}
-		return SizedBox{Height: float32(n) * ext}
+		return SizedBox{Height: v}
+	}
+	sized := func(i int, item Widget) Widget {
+		if w.Horizontal {
+			return SizedBox{Width: extent(i), Child: item}
+		}
+		return SizedBox{Height: extent(i), Child: item}
 	}
 	kids := make([]Widget, 0, s.end-s.first+2)
 	if s.first > 0 {
-		kids = append(kids, KeyedSubtree{ID: "lead", Child: spacer(s.first)})
+		kids = append(kids, KeyedSubtree{ID: "lead", Child: spacer(s.start(s.first))})
 	}
 	for i := s.first; i < s.end; i++ {
-		item := w.Builder(ctx, i)
-		if w.Horizontal {
-			item = SizedBox{Width: ext, Child: item}
-		} else {
-			item = SizedBox{Height: ext, Child: item}
-		}
-		kids = append(kids, KeyedSubtree{ID: i, Child: item})
+		kids = append(kids, KeyedSubtree{ID: i, Child: sized(i, w.Builder(ctx, i))})
 	}
-	if rest := w.ItemCount - s.end; rest > 0 {
-		kids = append(kids, KeyedSubtree{ID: "tail", Child: spacer(rest)})
+	if s.end < w.ItemCount {
+		kids = append(kids, KeyedSubtree{ID: "tail", Child: spacer(s.total() - s.start(s.end))})
 	}
-	return ScrollView{Horizontal: w.Horizontal, Controller: s.ctrl, ThumbColor: w.ThumbColor,
+	list := ScrollView{Horizontal: w.Horizontal, Controller: s.ctrl, ThumbColor: w.ThumbColor,
 		Child: Flex{Direction: axisOf(w.Horizontal), Cross: CrossStretch, ShrinkMain: true, Children: kids}}
+	if w.IsHeader == nil || w.Horizontal {
+		return list
+	}
+	// Always a Stack (even with nothing pinned), so the list keeps its
+	// place in the tree when a header gets pinned.
+	s.pinned, s.pinY = s.pinnedHeader(s.first)
+	layers := []Widget{KeyedSubtree{ID: "list", Child: list}}
+	if s.pinned >= 0 {
+		layers = append(layers, KeyedSubtree{ID: "pinned", Child: Positioned{Top: At(s.pinY), Left: At(0), Right: At(0),
+			Child: ClipRect{Child: sized(s.pinned, w.Builder(ctx, s.pinned))}}})
+	}
+	return Stack{Children: layers}
 }
 
 func axisOf(horizontal bool) render.Axis {

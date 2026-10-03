@@ -170,6 +170,7 @@ func convertPointer(ev gpucontext.PointerEvent) (render.PointerEvent, bool) {
 		Position: geom.Offset{X: float32(ev.X), Y: float32(ev.Y)},
 		Button:   int(ev.Button),
 		Touch:    ev.PointerType == gpucontext.PointerTypeTouch,
+		Mods:     uint8(convertMods(ev.Modifiers)),
 	}
 	switch ev.Type {
 	case gpucontext.PointerDown:
@@ -204,6 +205,7 @@ func convertScroll(ev gpucontext.ScrollEvent) render.PointerEvent {
 		Position: geom.Offset{X: float32(ev.X), Y: float32(ev.Y)},
 		Scroll:   geom.Offset{X: float32(ev.DeltaX) * unit, Y: float32(ev.DeltaY) * unit},
 		Button:   -1,
+		Mods:     uint8(convertMods(ev.Modifiers)),
 	}
 }
 

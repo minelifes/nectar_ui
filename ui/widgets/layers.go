@@ -273,3 +273,24 @@ func (w SizeTransition) UpdateRenderObject(_ BuildContext, ro render.RenderObjec
 		render.MarkNeedsLayout(r)
 	}
 }
+
+// Offstage hides Child without dropping it: while Offstage it's laid out
+// but takes no space, isn't painted and doesn't get pointer input, and its
+// state survives (keep inactive tabs or pages alive with it).
+type Offstage struct {
+	Offstage bool
+	Child    Widget
+}
+
+func (w Offstage) ChildWidget() Widget { return w.Child }
+func (w Offstage) CreateRenderObject(BuildContext) render.RenderObject {
+	return &render.RenderOffstage{Offstage: w.Offstage}
+}
+func (Offstage) MarksOwnPaint() {}
+func (w Offstage) UpdateRenderObject(_ BuildContext, ro render.RenderObject) {
+	r := ro.(*render.RenderOffstage)
+	if r.Offstage != w.Offstage {
+		r.Offstage = w.Offstage
+		render.MarkNeedsLayout(r)
+	}
+}

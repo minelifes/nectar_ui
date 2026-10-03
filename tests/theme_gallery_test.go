@@ -82,6 +82,9 @@ func themeGallery(th m.Theme, dark bool) w.Widget {
 		m.BottomAppBar{Actions: []w.Widget{m.IconButton{Icon: icons.Home, OnPressed: nop}, w.Icon{Icon: icons.Home}}, FAB: m.FloatingActionButton{Icon: icons.Add, Lowered: true, OnPressed: nop}},
 		m.QuickPickPanel{QuickPick: m.QuickPick{Query: "o", MaxVisible: 3, Items: []m.QuickPickItem{
 			{Label: "Open File", Detail: "file.go", Hint: "Ctrl+O"}, {Label: "Close", Hint: "Ctrl+W"}}}},
+		w.SizedBox{Height: 90, Child: m.Dock{Controller: w.NewDockController(&w.DockNode{Children: []*w.DockNode{
+			{Tabs: []string{"a", "b"}, Active: "a"}, {Tabs: []string{"c"}}}}),
+			Panels: []w.DockPanel{{ID: "a", Title: "A", Closable: true}, {ID: "b", Title: "B"}, {ID: "c", Title: "C"}}}},
 	}
 	col3 := []w.Widget{
 		w.SizedBox{Height: 260, Child: w.Row{Children: []w.Widget{
@@ -143,6 +146,7 @@ var untestable = map[string]bool{
 	"CollapsedBackgroundColor": true, "CollapsedIconColor": true, "CollapsedTextColor": true, "DisabledColor": true,
 	"SelectedTextColor": true, "ScrollbarColor": true, "ExtendedPadding": true, "HeadingRowColor": true, "DataRowColor": true,
 	"QuickPick.Width": true, // only ShowQuickPick sizes the panel
+	"DropHintColor":   true, // while dragging
 	"MaxWidth":        true, "Margin": true, "ChildrenPadding": true, "InactiveIconColor": true, "IndicatorHeight": true,
 	"DisabledBackgroundColor": true,
 	// not used by that component (see the ButtonStyle docs)

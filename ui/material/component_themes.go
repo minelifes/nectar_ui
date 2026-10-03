@@ -316,6 +316,19 @@ type TabBarTheme struct {
 	Height               *float32
 }
 
+// DockTheme styles Dock: its tab strips, splits and drop hints.
+type DockTheme struct {
+	TabBarColor     geom.Color
+	TabColor        geom.Color // inactive tabs
+	ActiveTabColor  geom.Color
+	IndicatorColor  geom.Color // line under the active tab
+	DividerColor    geom.Color // between groups
+	DropHintColor   geom.Color // where a dragged tab will land
+	TextStyle       text.Style
+	ActiveTextStyle text.Style
+	TabHeight       *float32
+}
+
 // BottomAppBarTheme styles BottomAppBar.
 type BottomAppBarTheme struct {
 	Color     geom.Color

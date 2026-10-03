@@ -31,9 +31,11 @@ type BuildOwner struct {
 	// them with ResourcesOf(ctx).
 	Resources *resources.Set
 
-	dirty   []Element
-	tickers map[*Ticker]struct{}
-	focus   *FocusManager
+	dirty       []Element
+	tickers     map[*Ticker]struct{}
+	focus       *FocusManager
+	drag        *dragManager
+	fileTargets []*fileDropState
 
 	mu     sync.Mutex
 	posted []func()

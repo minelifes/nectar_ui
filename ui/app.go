@@ -75,6 +75,16 @@ func (a *App) Run(root widgets.Widget) error {
 	a.root = widgets.Mount(root, a.config.Background, a.buildOwner, a.pipeline)
 
 	a.setupInput()
+	// Files dropped from the OS file manager (the position is in physical
+	// pixels).
+	a.gpuApp.OnDragDrop(func(paths []string, x, y float64) {
+		scale := a.gpuApp.ScaleFactor()
+		if scale <= 0 {
+			scale = 1
+		}
+		pos := geom.Offset{X: float32(x / scale), Y: float32(y / scale)}
+		a.buildOwner.Post(func() { a.buildOwner.DropFiles(paths, pos) })
+	})
 	a.gpuApp.OnDraw(a.frame)
 	a.gpuApp.OnClose(a.close)
 	return a.gpuApp.Run()

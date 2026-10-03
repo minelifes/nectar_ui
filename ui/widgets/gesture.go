@@ -21,6 +21,21 @@ const (
 	CursorNotAllowed = render.CursorNotAllowed
 )
 
+// Pointer event kinds and mouse buttons, re-exported.
+const (
+	PointerDown   = render.PointerDown
+	PointerMove   = render.PointerMove
+	PointerUp     = render.PointerUp
+	PointerCancel = render.PointerCancel
+	PointerHover  = render.PointerHover
+	PointerExit   = render.PointerExit
+	PointerScroll = render.PointerScroll
+
+	ButtonPrimary   = render.ButtonPrimary
+	ButtonMiddle    = render.ButtonMiddle
+	ButtonSecondary = render.ButtonSecondary
+)
+
 // GestureDetector recognizes taps and drags on its child.
 //
 // Nested detectors compete: the innermost one that handles the gesture wins,

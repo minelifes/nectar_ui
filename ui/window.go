@@ -15,6 +15,7 @@ import (
 type nativeWindow struct {
 	app      *gogpu.App
 	titleBar titleBarKind
+	post     func(func()) // runs on the UI goroutine
 
 	mu            sync.Mutex
 	pending       []func(*gogpu.App)

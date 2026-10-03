@@ -121,8 +121,10 @@ func (t *Tester) Advance(d time.Duration) {
 	t.Pump()
 }
 
-// Settle advances until no animation is running (up to 5s).
+// Settle runs a frame (building what was just inserted, like a popup) and
+// advances until no animation is running (up to 5s).
 func (t *Tester) Settle() {
+	t.Pump()
 	for i := 0; i < 320 && t.Build.HasActiveTickers(); i++ {
 		t.Advance(16 * time.Millisecond)
 	}
@@ -130,16 +132,29 @@ func (t *Tester) Settle() {
 
 // Pointer dispatches one pointer event and runs a frame.
 func (t *Tester) Pointer(kind render.PointerKind, x, y float32) {
-	e := render.PointerEvent{Kind: kind, ID: 1, Position: geom.Pt(x, y), Button: render.ButtonPrimary}
+	t.Dispatch(render.PointerEvent{Kind: kind, ID: 1, Position: geom.Pt(x, y), Button: render.ButtonPrimary})
+}
+
+// Dispatch delivers a pointer event as the app would (any button, with
+// modifiers) and runs a frame.
+func (t *Tester) Dispatch(e render.PointerEvent) {
 	fm := t.Build.Focus()
-	if kind == render.PointerDown {
+	if e.Kind == render.PointerDown {
 		fm.BeginPointerDown()
 	}
 	t.disp.Dispatch(t.Pipeline.Root(), e)
-	if kind == render.PointerDown {
+	if e.Kind == render.PointerDown {
 		fm.EndPointerDown()
 	}
 	t.Pump()
+}
+
+// SecondaryTap right-clicks at (x, y).
+func (t *Tester) SecondaryTap(x, y float32) {
+	e := render.PointerEvent{Kind: render.PointerDown, ID: 1, Position: geom.Pt(x, y), Button: render.ButtonSecondary}
+	t.Dispatch(e)
+	e.Kind = render.PointerUp
+	t.Dispatch(e)
 }
 
 // Tap presses and releases at (x, y).

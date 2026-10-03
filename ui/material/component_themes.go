@@ -385,6 +385,41 @@ type SnackBarTheme struct {
 	MaxWidth         *float32
 }
 
+// ToastTheme styles ShowToast notifications.
+type ToastTheme struct {
+	BackgroundColor geom.Color
+	TitleStyle      text.Style
+	MessageStyle    text.Style
+	ActionColor     geom.Color
+	CloseIconColor  geom.Color
+	InfoColor       geom.Color // the kind's icon and accent
+	SuccessColor    geom.Color
+	WarningColor    geom.Color
+	ErrorColor      geom.Color
+	ProgressColor   geom.Color
+	ShadowColor     geom.Color
+	Elevation       *int
+	Radius          *float32
+	Width           *float32
+	// Duration is how long toasts stay (default 5s).
+	Duration time.Duration
+}
+
+// HoverCardTheme styles HoverCard and RichTooltip.
+type HoverCardTheme struct {
+	BackgroundColor geom.Color
+	TitleStyle      text.Style
+	TextStyle       text.Style
+	ActionColor     geom.Color
+	ShadowColor     geom.Color
+	Elevation       *int
+	Radius          *float32
+	Padding         *geom.EdgeInsets
+	MaxWidth        *float32
+	// WaitDuration is the hover time before it shows (default 500ms).
+	WaitDuration time.Duration
+}
+
 // MenuTheme styles menus: ShowMenu, PopupMenuButton, DropdownMenu.
 type MenuTheme struct {
 	BackgroundColor geom.Color
@@ -396,6 +431,16 @@ type MenuTheme struct {
 	Elevation       *int
 	Radius          *float32
 	ItemHeight      *float32
+}
+
+// MenuBarTheme styles MenuBar (its menus use MenuTheme).
+type MenuBarTheme struct {
+	BackgroundColor geom.Color
+	HighlightColor  geom.Color // the open or hovered title
+	TextStyle       text.Style
+	ItemPadding     *geom.EdgeInsets
+	Height          *float32
+	Radius          *float32
 }
 
 // QuickPickTheme styles QuickPick and the command palette.

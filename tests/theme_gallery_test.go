@@ -80,6 +80,8 @@ func themeGallery(th m.Theme, dark bool) w.Widget {
 		m.TabBar{Tabs: []m.Tab{{Text: "One"}, {Text: "Two"}}, Secondary: true, OnChanged: func(int) {}},
 		m.NavigationBar{Destinations: dests, Selected: 1, OnSelected: func(int) {}},
 		m.BottomAppBar{Actions: []w.Widget{m.IconButton{Icon: icons.Home, OnPressed: nop}, w.Icon{Icon: icons.Home}}, FAB: m.FloatingActionButton{Icon: icons.Add, Lowered: true, OnPressed: nop}},
+		m.QuickPickPanel{QuickPick: m.QuickPick{Query: "o", MaxVisible: 3, Items: []m.QuickPickItem{
+			{Label: "Open File", Detail: "file.go", Hint: "Ctrl+O"}, {Label: "Close", Hint: "Ctrl+W"}}}},
 	}
 	col3 := []w.Widget{
 		w.SizedBox{Height: 260, Child: w.Row{Children: []w.Widget{
@@ -113,6 +115,11 @@ func galleryCmds(th m.Theme) string {
 	for _, c := range tt.Pump().Commands {
 		if c.Text != nil {
 			fmt.Fprintf(&b, "lines=%+v ", c.Text.Lines)
+			if c.Text.Rich {
+				for _, g := range c.Text.Glyphs {
+					fmt.Fprintf(&b, "%v ", g.Color)
+				}
+			}
 		}
 		c.Text, c.Icon, c.Image = nil, nil, nil
 		fmt.Fprintf(&b, "%+v\n", c)
@@ -135,7 +142,8 @@ var untestable = map[string]bool{
 	"ShadowColor": true, "ErrorColor": true, "ScrolledUnderColor": true, "InactiveThumbColor": true, "HintStyle": true,
 	"CollapsedBackgroundColor": true, "CollapsedIconColor": true, "CollapsedTextColor": true, "DisabledColor": true,
 	"SelectedTextColor": true, "ScrollbarColor": true, "ExtendedPadding": true, "HeadingRowColor": true, "DataRowColor": true,
-	"MaxWidth": true, "Margin": true, "ChildrenPadding": true, "InactiveIconColor": true, "IndicatorHeight": true,
+	"QuickPick.Width": true, // only ShowQuickPick sizes the panel
+	"MaxWidth":        true, "Margin": true, "ChildrenPadding": true, "InactiveIconColor": true, "IndicatorHeight": true,
 	"DisabledBackgroundColor": true,
 	// not used by that component (see the ButtonStyle docs)
 	"TextButton.Radius": true, "IconButton.Padding": true, "IconButton.TextStyle": true,

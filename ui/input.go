@@ -254,6 +254,13 @@ func convertKey(k gpucontext.Key) widgets.KeyCode {
 		// Same order in both enums: Escape Tab Backspace Enter Space Insert
 		// Delete Home End PageUp PageDown Left Right Up Down.
 		return widgets.KeyEscape + widgets.KeyCode(k-gpucontext.KeyEscape)
+	case k >= gpucontext.KeyF1 && k <= gpucontext.KeyF12:
+		return widgets.KeyF1 + widgets.KeyCode(k-gpucontext.KeyF1)
+	case k >= gpucontext.KeyMinus && k <= gpucontext.KeySlash:
+		// Same order: - = [ ] \ ; ' ` , . /
+		return widgets.KeyMinus + widgets.KeyCode(k-gpucontext.KeyMinus)
+	case k == gpucontext.KeyNumpadEnter:
+		return widgets.KeyEnter
 	}
 	return widgets.KeyUnknown
 }

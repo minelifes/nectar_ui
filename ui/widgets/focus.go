@@ -64,6 +64,29 @@ const (
 	KeyRight
 	KeyUp
 	KeyDown
+	KeyF1
+	KeyF2
+	KeyF3
+	KeyF4
+	KeyF5
+	KeyF6
+	KeyF7
+	KeyF8
+	KeyF9
+	KeyF10
+	KeyF11
+	KeyF12
+	KeyMinus
+	KeyEqual
+	KeyLeftBracket
+	KeyRightBracket
+	KeyBackslash
+	KeySemicolon
+	KeyApostrophe
+	KeyGrave
+	KeyComma
+	KeyPeriod
+	KeySlash
 )
 
 // Modifiers are the modifier keys held during a key event.
@@ -140,6 +163,10 @@ func (n *FocusNode) Unfocus() {
 	}
 }
 
+// Parent returns the node's enclosing focus node (the next one key events
+// bubble to), or nil.
+func (n *FocusNode) Parent() *FocusNode { return n.parent }
+
 // FocusManager tracks the focused node and routes keyboard input.
 type FocusManager struct {
 	owner   *BuildOwner
@@ -148,6 +175,24 @@ type FocusManager struct {
 
 	inPointer        bool
 	pointerRequested bool
+
+	interceptors []*keyInterceptor
+	dropText     bool // an interceptor took the last key press
+}
+
+type keyInterceptor struct{ fn func(KeyEvent) bool }
+
+// AddInterceptor registers fn to see key presses before the focused node
+// does; returning true consumes the key, and the text the platform sends
+// with it is dropped too (a key sequence like Ctrl+K S must not type
+// "s"). Use it sparingly: the command system uses it to finish multi-key
+// shortcuts. The most recently added interceptor runs first.
+func (m *FocusManager) AddInterceptor(fn func(KeyEvent) bool) (remove func()) {
+	ki := &keyInterceptor{fn}
+	m.interceptors = append(m.interceptors, ki)
+	return func() {
+		m.interceptors = slices.DeleteFunc(m.interceptors, func(x *keyInterceptor) bool { return x == ki })
+	}
 }
 
 // Focus returns the owner's focus manager.
@@ -194,6 +239,13 @@ func (m *FocusManager) focus(n *FocusNode) {
 
 // HandleKey routes a key press. Returns whether something handled it.
 func (m *FocusManager) HandleKey(e KeyEvent) bool {
+	m.dropText = false
+	for i := len(m.interceptors) - 1; i >= 0; i-- {
+		if m.interceptors[i].fn(e) {
+			m.dropText = true
+			return true
+		}
+	}
 	for n := m.primary; n != nil; n = n.parent {
 		if n.OnKey != nil && n.OnKey(e) {
 			return true
@@ -213,6 +265,10 @@ func (m *FocusManager) HandleKey(e KeyEvent) bool {
 
 // HandleText routes typed text to the focused node.
 func (m *FocusManager) HandleText(s string) {
+	if m.dropText {
+		m.dropText = false
+		return
+	}
 	if n := m.primary; n != nil && n.OnText != nil {
 		n.OnText(s)
 	}

@@ -385,6 +385,22 @@ type MenuTheme struct {
 	ItemHeight      *float32
 }
 
+// QuickPickTheme styles QuickPick and the command palette.
+type QuickPickTheme struct {
+	BackgroundColor geom.Color
+	SelectedColor   geom.Color // the highlighted item
+	MatchColor      geom.Color // matched characters of an item
+	ShadowColor     geom.Color
+	TextStyle       text.Style // item labels
+	DetailStyle     text.Style // item details
+	HintStyle       text.Style // right-aligned hints (shortcuts)
+	InputStyle      text.Style // the query
+	Elevation       *int
+	Radius          *float32
+	Width           *float32
+	ItemHeight      *float32
+}
+
 // DropdownMenuTheme styles the DropdownMenu field (its menu uses MenuTheme).
 type DropdownMenuTheme struct {
 	TextStyle   text.Style

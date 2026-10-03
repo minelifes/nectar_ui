@@ -70,6 +70,20 @@ func (s *textFieldState) InitState() {
 
 func (s *textFieldState) Build(ctx w.BuildContext) w.Widget {
 	tf := w.WidgetOf[TextField](s)
+	label := tf.Label
+	if label == "" {
+		label = tf.Hint
+	}
+	value := s.ctrl.Text()
+	if tf.Obscure {
+		value = ""
+	}
+	return w.Semantics{SemanticsData: w.SemanticsData{Role: "textfield", Label: label, Value: value, Hint: tf.Helper,
+		Disabled: tf.Disabled, OnTap: s.node.RequestFocus}, Child: s.build(ctx)}
+}
+
+func (s *textFieldState) build(ctx w.BuildContext) w.Widget {
+	tf := w.WidgetOf[TextField](s)
 	th := ThemeOf(ctx)
 	sc := th.Scheme
 	st := merge(th.Input, tf.Style)

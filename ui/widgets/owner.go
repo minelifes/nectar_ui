@@ -40,6 +40,8 @@ type BuildOwner struct {
 	focus       *FocusManager
 	drag        *dragManager
 	fileTargets []*fileDropState
+	stats       FrameStats
+	rebuilds    int
 
 	mu     sync.Mutex
 	posted []func()
@@ -92,6 +94,7 @@ func (o *BuildOwner) FlushBuild() {
 		slices.SortStableFunc(batch, func(a, b Element) int { return a.base().depth - b.base().depth })
 		for _, e := range batch {
 			if b := e.base(); b.dirty && b.active {
+				o.rebuilds++
 				e.rebuild()
 			}
 		}

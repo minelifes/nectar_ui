@@ -33,6 +33,23 @@ listed here:
    positions are logical pixels on every platform (X11 and Windows
    reported physical ones). (`app.go`, `platform_linux.go`,
    `platform_windows.go`, new `drop_target_windows*.go`)
+4. **Screen readers.** `Window.SetAccessibilityTree` / `App.SetAccessibilityTree`
+   take a tree of accessible nodes (role, name, value, description,
+   bounds, state, children, focus) and expose it to the OS:
+   - Linux: AT-SPI2 over D-Bus (`internal/platform/atspi`, using
+     `godbus/dbus`). The app registers with the accessibility bus in the
+     background and implements Accessible, Component, Action, Value and
+     Application, plus change events.
+   - macOS: `NSAccessibilityElement`s set as the content view's
+     accessibility children, with a press action and change notifications.
+   - Windows: UI Automation fragment providers, built as COM objects in
+     pure Go and served on `WM_GETOBJECT` (64-bit).
+
+   (new `accessibility.go`, `internal/platform/accessibility_*.go`,
+   `internal/platform/axtypes`, `internal/platform/atspi`,
+   `internal/platform/darwin/accessibility.go`,
+   `internal/platform/uia_windows.go`; `platform_windows.go` hooks
+   `WM_GETOBJECT`)
 
 ## Updating
 

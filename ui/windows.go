@@ -51,6 +51,7 @@ type secondaryWindow struct {
 	pipeline *render.PipelineOwner
 	root     *widgets.Root
 	input    *inputQueue
+	a11y     *accessibility
 
 	mu                    sync.Mutex
 	width, height         int
@@ -109,6 +110,9 @@ func (a *App) newWindow(g *gogpu.App, cfg Config, root widgets.Widget) (*seconda
 		return true
 	})
 	gw.SetOnDraw(sw.frame)
+	if !cfg.NoAccessibility {
+		sw.a11y = &accessibility{owner: sw.owner, publish: gw.SetAccessibilityTree, redraw: g.RequestRedraw}
+	}
 
 	a.winMu.Lock()
 	a.windows = append(a.windows, sw)
@@ -134,6 +138,7 @@ func (sw *secondaryWindow) frame(dc *gogpu.Context) {
 	sw.owner.FlushBuild()
 	sw.pipeline.FlushLayout(size)
 	canvas := sw.pipeline.FlushPaint(size)
+	sw.a11y.update(sw.pipeline.Root(), sw.Title(), size)
 	a.draw(dc, fbW, fbH, scale, sw.cfg.Background, canvas)
 	if sw.owner.HasActiveTickers() {
 		a.gpuApp.RequestRedraw()
@@ -150,6 +155,9 @@ func (sw *secondaryWindow) dispose() {
 	sw.closed = true
 	sw.mu.Unlock()
 	sw.root.Unmount()
+	if sw.a11y != nil {
+		sw.gw.SetAccessibilityTree(nil, nil)
+	}
 	a := sw.app
 	a.winMu.Lock()
 	a.windows = slices.DeleteFunc(a.windows, func(x *secondaryWindow) bool { return x == sw })

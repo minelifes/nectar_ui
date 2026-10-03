@@ -36,8 +36,11 @@ func (w Semantics) UpdateRenderObject(_ BuildContext, ro render.RenderObject) {
 // window and the annotated parts inside it.
 type SemanticsNode struct {
 	SemanticsData
+	ID       uint64    // stable while the node is in the tree
 	Rect     geom.Rect // window coordinates (clipped to what's visible)
+	Focused  bool      // keyboard focus is inside it (see MarkFocus)
 	Children []*SemanticsNode
+	ro       render.RenderObject
 }
 
 // SemanticsTree returns the annotated parts of the UI under root, as a
@@ -68,7 +71,7 @@ func SemanticsTree(root render.RenderObject) []*SemanticsNode {
 			if vis.Empty() {
 				return kids
 			}
-			return []*SemanticsNode{{SemanticsData: s.Data, Rect: vis, Children: kids}}
+			return []*SemanticsNode{{SemanticsData: s.Data, ID: s.ID(), Rect: vis, Children: kids, ro: s}}
 		}
 		return kids
 	}
@@ -80,6 +83,30 @@ func SemanticsTree(root render.RenderObject) []*SemanticsNode {
 		big = geom.RectFrom(geom.Offset{}, b)
 	}
 	return walk(root, big)
+}
+
+// MarkFocus marks the innermost node that holds the keyboard focus of fm
+// (Focused) and returns it (nil if none).
+func MarkFocus(nodes []*SemanticsNode, fm *FocusManager) *SemanticsNode {
+	n := fm.Primary()
+	if n == nil || n.element == nil {
+		return nil
+	}
+	ro := n.element.RenderObject()
+	var found *SemanticsNode
+	all := FlattenSemantics(nodes)
+	for r := ro; r != nil && found == nil; r = r.Base().Parent() {
+		for _, sn := range all {
+			if sn.ro == r {
+				found = sn
+				break
+			}
+		}
+	}
+	if found != nil {
+		found.Focused = true
+	}
+	return found
 }
 
 // FlattenSemantics lists every node of a semantics forest, depth first.

@@ -1183,6 +1183,7 @@ func (w *win32Window) Destroy() {
 	}
 	if w.hwnd != 0 {
 		revokeDropTarget(w)
+		setUIATree(w, nil, nil)
 		procDestroyWindow.Call(uintptr(w.hwnd))
 		w.hwnd = 0
 	}
@@ -2597,6 +2598,11 @@ func wndProc(hwnd windows.HWND, message uint32, wParam, lParam uintptr) uintptr 
 	}
 
 	switch message {
+	case wmGetObject:
+		if r, ok := uiaGetObject(hwnd, wParam, lParam); ok {
+			return r
+		}
+
 	case wmClose:
 		w.shouldClose = true
 		p.queueEvent(Event{Type: EventClose, WindowID: w.id})

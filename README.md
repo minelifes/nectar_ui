@@ -1,6 +1,6 @@
 # Nectar UI
 
-A retained-mode UI engine in Go on top of wgpu (`gogpu/wgpu` + `gogpu/gogpu` for windowing).
+A retained-mode UI engine in Go on top of wgpu (`gogpu/wgpu`, plus a fork of `gogpu/gogpu` in `internal/gogpu` for windowing; see [its FORK.md](internal/gogpu/FORK.md) for what it adds).
 Architecture follows Flutter: **Widget → Element → RenderObject → display list → GPU**.
 
 ```
@@ -95,7 +95,11 @@ Frames are on demand: `SetState`, `Post` and `MarkNeedsLayout/Paint` call `Reque
 ## Text
 
 - **Fonts:** `golang.org/x/image/font/sfnt` parses TTF/OTF. The Go fonts are embedded, so there's no setup (Latin, Cyrillic, Greek).
-- **Shaping:** cmap lookup plus kerning. Contextual shaping for Arabic/Indic isn't supported yet (HarfBuzz-style shaping would slot into `text.shape`).
+- **Shaping:** Latin, Cyrillic and Greek in fonts without ligature tables take the fast path (cmap lookup plus kerning). Everything else goes through `go-text/typesetting`, a pure-Go HarfBuzz port:
+  - Complex scripts: Arabic joining forms, Indic conjuncts and reordering, combining marks, and so on.
+  - Ligatures ("fi", "ffi", programming-font arrows) in fonts that have them. `Style.NoLigatures` turns them off, e.g. for code where every character should stay visible.
+  - Bidirectional text (Unicode bidi algorithm): Arabic and Hebrew run right to left, and mixed lines are reordered per run. An RTL paragraph aligns `AlignStart` to the right.
+  - The caret stops before every character, inside ligatures too, and moves in visual order. Selections over mixed-direction text are drawn as one rectangle per visual run (`Paragraph.SelectionRects`).
 - **Layout:** greedy word wrap at spaces and hyphens, mid-word break for long words, `\n` hard breaks, `LineHeight`, `LetterSpacing`, alignment, and `MaxLines` + ellipsis.
 - **Atlas:** glyphs are rasterized on demand at *physical* pixel size with 4 horizontal subpixel positions, so text stays crisp at any DPI. They're stored in an RGBA atlas (1024², shelf packer). Only dirty rows are uploaded, and the atlas resets itself when it fills up.
 - **Editing:** multiline fields (`EditableText{Multiline: true}`, `material.TextField{Multiline: true}`) soft-wrap at the field width using the same line breaking as `Text`. `NoWrap` turns that off.
@@ -113,7 +117,7 @@ Frames are on demand: `SetState`, `Post` and `MarkNeedsLayout/Paint` call `Reque
 - **Font fallback:** `font.WithFallback(cjk, emoji)` draws the runes a font lacks from the next font that has them; `text.SetGlobalFallback(...)` sets fallbacks for every font. The built-in Go fonts have no CJK glyphs: load one (e.g. Noto Sans CJK) with `text.ParseFont` and add it as a fallback.
 - **Tabs:** `Style.TabSize` sets tab stops in spaces (0 keeps a tab one space wide).
 - **Selection:** `widgets.SelectableText` (read-only): drag, double-click a word, triple-click all, Shift+arrows, Ctrl/⌘+A and Ctrl/⌘+C. Paragraphs expose `OffsetAt`, `CaretAt`, `SelectionRects` and `text.WordAt` for your own text widgets.
-- **Not yet:** ligatures and contextual shaping (sfnt has no GSUB support).
+- **Not yet:** vertical text, and emoji color fonts (COLR/CBDT).
 
 ## Writing widgets
 
@@ -275,6 +279,7 @@ w, h := win.Size()              // as of the last frame
 - **Threading:** setters are safe from any goroutine. They queue the request, and `ui.App` applies it on the platform's main thread before the next frame, as AppKit requires.
 - **After a resize:** the new size reaches layout like a user resize would.
 - **Outside the app:** `ui.App.Window()` returns the same handle.
+- **Secondary windows** (`ui.App.OpenWindow`) support the same calls: title, size limits, maximize, minimize and fullscreen.
 - **Tests:** `tester.Tester.Window` fakes it. `SetSize` really resizes the test surface (`tt.Size`), clamped to the min/max size, and title, fullscreen and maximize are recorded for assertions.
 
 ## Custom title bar
@@ -337,9 +342,14 @@ widgets.LayoutBuilder{Builder: func(ctx widgets.BuildContext, c geom.Constraints
   - `ScrollView2D` scrolls both ways (wheel, Shift+wheel, trackpad, drag), with a controller per axis.
   - `DataGrid` is a virtualized table: only visible rows are built, the header stays on top and scrolls sideways with the rows, columns resize by dragging.
 - **Docking:** `Dock` + `DockController` arrange panels in tab groups and splits. Users drag tabs to reorder them, move them to another group or drop them on a group's edge to split it. Layouts save and restore as JSON, and background tabs keep their state (`Offstage`). `material.Dock` styles it (`Theme.Dock`).
-- **Drag and drop:** `Draggable` / `DragTarget` move data inside the app (with a feedback widget under the pointer); `FileDropTarget` receives files dropped from the OS file manager.
+- **Drag and drop:** `Draggable` / `DragTarget` move data inside the app (with a feedback widget under the pointer); `FileDropTarget` receives files dropped from the OS file manager, with `OnEnter` / `OnMove` / `OnLeave` while they're dragged over it (to highlight the drop zone). In tests: `tt.DragFiles(paths, drop, points...)`.
 - **Windows and dialogs:** `widgets.OpenWindow` (or `ui.App.OpenWindow`) opens more native windows, each with its own widget tree. `widgets.ShowOpenDialog` / `ShowSaveDialog` use the system file dialogs.
-- **Semantics:** `Semantics` annotates a part of the UI with a role, label, value, state and default action. Material controls annotate themselves (`SemanticLabel` on controls without text). `widgets.SemanticsTree` collects them for tests and automation. There's no platform screen-reader bridge yet: gogpu has no accessibility API.
+- **Semantics:** `Semantics` annotates a part of the UI with a role, label, value, state and default action. Material controls annotate themselves (`SemanticLabel` on controls without text). `widgets.SemanticsTree` collects them for tests and automation, and every window hands them to the OS screen reader after frames that change them:
+  - Linux: AT-SPI2 over D-Bus (Orca), when an accessibility bus is running.
+  - macOS: `NSAccessibilityElement`s under the window's view (VoiceOver).
+  - Windows: UI Automation providers (Narrator, NVDA, JAWS).
+
+  Screen readers see each node's role, name, value, hint, bounds, checked/selected/disabled state and focus, and can press nodes with a default action (`OnTap`). `Config.NoAccessibility` turns this off for a window.
 - **Animation:** tickers driven by frames, `AnimationController` (forward, reverse, repeat), M3 easing curves, and `Animated` for implicit transitions. The app requests frames only while an animation runs.
 - **Keyboard:** `Focus` / `FocusNode`. Key events bubble up through parent nodes, Tab moves focus in reading order, and `CatchAll` nodes catch keys nobody else handled.
 - **Text editing:** `EditableText` + `TextEditingController`: caret, selection, word jumps, clipboard, obscured input, multiline.
@@ -456,7 +466,7 @@ material.ShowCommandPalette(ctx)                                                
 
 `Mod` is ⌘ on macOS and Ctrl elsewhere. The focused widget gets a key first (a text field keeps Ctrl+C), then the scopes around it, then the global commands. `host.Keymap.SetKeys(id, "F2")` rebinds; `json.Marshal(host.Keymap)` saves only the user's changes; `Keymap.Conflicts` finds clashes.
 
-**Menus** (`ui/menu`). The same data drives `material.MenuBar`, `material.ContextMenuRegion` and the native macOS menu bar (`app.SetNativeMenu(menus, host)`; `ui.HasNativeMenuBar()` tells where it's shown).
+**Menus** (`ui/menu`). The same data drives `material.MenuBar`, `material.ContextMenuRegion` and the native menu bar on macOS and Windows (`app.SetNativeMenu(menus, host)`; `ui.HasNativeMenuBar()` tells where it's shown). Native items show their command's shortcut (macOS key equivalents, right-aligned text on Windows) and check marks.
 
 **Extensions** (`ui/extension`). Declare typed extension points (`extension.NewPoint[StatusItem]("statusBar")`), register compiled-in extensions with a manifest, or load a folder of them with `host.LoadDir`. Extensions activate lazily on events (`onStartup`, `onCommand:<id>`, your own `onLanguage:go`), and whatever they register through their `Context` is undone when they're deactivated. With `host.UseCommands(registry)`, commands declared in a manifest's `contributes` appear in the palette before the extension's code is loaded. `extension/wasm` runs plugins compiled to WebAssembly (Go `GOOS=wasip1`, TinyGo, Rust) in a wazero sandbox: no files, network or environment, host functions gated by the manifest's permissions, capped memory and a per-call timeout.
 
@@ -488,7 +498,7 @@ More helpers: `tt.Semantics()` / `tt.FindSemantics("button", "Save")` (read the 
 
 - Platform IME events in gogpu (NSTextInputClient on macOS, `WM_IME_*` on Windows, text-input-v3/XIM on Linux); the engine side is ready.
 - A code-editing widget on top of rich text (a rope buffer, multiple cursors, gutters, folding, highlighter hooks), as an optional package.
-- Ligatures and contextual shaping (needs GSUB/GPOS support).
-- A screen-reader bridge for the semantics tree, and shortcut hints in the native menu (both need gogpu APIs).
+- Send the `internal/gogpu` changes upstream (see its FORK.md) and go back to the released module.
+- Richer screen-reader support: text ranges and caret navigation in text fields, live regions, and announcements.
 - GPU-side caching for repaint boundaries (reuse vertex data too, not just the display list).
 - Transforms (scale/rotate), per-corner radii, fling scrolling.

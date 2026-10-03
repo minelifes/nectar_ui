@@ -6,6 +6,7 @@ require (
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/go-text/typesetting v0.3.5
 	github.com/go-webgpu/goffi v0.6.3
+	github.com/godbus/dbus/v5 v5.2.2
 	github.com/gogpu/gpucontext v0.31.3
 	github.com/gogpu/gputypes v0.8.0
 	github.com/gogpu/wgpu v0.34.5

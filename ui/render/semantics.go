@@ -1,6 +1,10 @@
 package render
 
-import "github.com/minelifes/nectar_ui/ui/geom"
+import (
+	"sync/atomic"
+
+	"github.com/minelifes/nectar_ui/ui/geom"
+)
 
 // SemanticsData describes what a part of the UI is, for assistive
 // technology and tests (see widgets.Semantics).
@@ -23,6 +27,18 @@ type RenderSemantics struct {
 	Box
 	SingleChild
 	Data SemanticsData
+	id   uint64
+}
+
+var semanticsIDs atomic.Uint64
+
+// ID identifies the node for as long as it's in the tree (accessibility
+// bridges hand it to the OS).
+func (r *RenderSemantics) ID() uint64 {
+	if r.id == 0 {
+		r.id = semanticsIDs.Add(1)
+	}
+	return r.id
 }
 
 func (r *RenderSemantics) PerformLayout(c geom.Constraints) geom.Size { return layoutProxy(r.child, c) }

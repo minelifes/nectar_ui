@@ -36,6 +36,7 @@ type App struct {
 	imeEnabled bool
 	imePos     [2]int
 	hits       *hitTester // frameless title bars
+	a11y       *accessibility
 
 	nativeMenus []menu.Menu
 	nativeHost  *commands.Host
@@ -102,6 +103,10 @@ func (a *App) Run(root widgets.Widget) error {
 	// Files dragged from the OS file manager, routed to the window they're
 	// over (positions are logical pixels).
 	a.gpuApp.OnFileDrag(a.fileDrag)
+	if !a.config.NoAccessibility {
+		g := a.gpuApp
+		a.a11y = &accessibility{owner: a.buildOwner, publish: g.SetAccessibilityTree, redraw: g.RequestRedraw}
+	}
 	a.gpuApp.OnDraw(a.frame)
 	a.gpuApp.OnClose(a.close)
 	return a.gpuApp.Run()
@@ -155,6 +160,7 @@ func (a *App) frame(dc *gogpu.Context) {
 	a.buildOwner.RecordFrame(t1.Sub(t0), t2.Sub(t1), time.Since(t2), len(canvas.Commands))
 	a.hits.mu.Unlock()
 	a.syncIME(scale)
+	a.a11y.update(a.pipeline.Root(), a.window.Title(), window)
 
 	// 4. GPU
 	a.draw(dc, fbW, fbH, scale, a.config.Background, canvas)

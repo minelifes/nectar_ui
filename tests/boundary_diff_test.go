@@ -2,6 +2,7 @@ package tests
 
 import (
 	"fmt"
+	"reflect"
 	"slices"
 	"testing"
 
@@ -99,7 +100,7 @@ func sameText(a, b *text.Paragraph) bool {
 	if a == nil || b == nil {
 		return a == b
 	}
-	return a.Style == b.Style && slices.Equal(a.Glyphs, b.Glyphs) && slices.Equal(a.Lines, b.Lines)
+	return a.Style == b.Style && slices.Equal(a.Glyphs, b.Glyphs) && reflect.DeepEqual(a.Lines, b.Lines)
 }
 
 // TestRepaintBoundaryMatchesUncached drives the same screen twice, with

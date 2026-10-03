@@ -81,24 +81,7 @@ func pickE(p *geom.EdgeInsets, def geom.EdgeInsets) geom.EdgeInsets {
 }
 
 // pickT returns def with the set fields of s on top.
-func pickT(s, def text.Style) text.Style {
-	if s.Font != nil {
-		def.Font = s.Font
-	}
-	if s.Size != 0 {
-		def.Size = s.Size
-	}
-	if s.Color != (geom.Color{}) {
-		def.Color = s.Color
-	}
-	if s.LineHeight != 0 {
-		def.LineHeight = s.LineHeight
-	}
-	if s.LetterSpacing != 0 {
-		def.LetterSpacing = s.LetterSpacing
-	}
-	return def
-}
+func pickT(s, def text.Style) text.Style { return s.Inherit(def) }
 
 // side resolves an outline from a style's color and width: a color alone
 // gets a 1px line, a width alone the default color, neither the defaults.

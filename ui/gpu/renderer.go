@@ -8,9 +8,9 @@ package gpu
 import (
 	"encoding/binary"
 	"fmt"
+	text2 "github.com/minelifes/nectar_ui/ui/widgets/text"
 	"log/slog"
 	"math"
-	text2 "github.com/minelifes/nectar_ui/ui/widgets/text"
 	"reflect"
 
 	"github.com/gogpu/gputypes"
@@ -524,12 +524,25 @@ func (r *Renderer) text(p *text2.Paragraph, origin geom.Offset, c geom.Color) bo
 	sizePx := p.Style.Size * s
 	inv := r.atlasScale
 	ok := true
+	col := c
 	for _, line := range p.Lines {
 		lx := (origin.X + line.X) * s
 		for _, g := range p.Glyphs[line.First:line.Last] {
 			penX, sub := text2.SubpixelBin(lx + g.X*s)
 			penY := float32(math.Round(float64((origin.Y + g.Y) * s)))
-			e, fits := r.atlas.Glyph(font, g.ID, sizePx, sub)
+			gf, gs := font, sizePx
+			if g.Font != nil {
+				gf = g.Font
+			}
+			if g.Size > 0 {
+				gs = g.Size * s
+			}
+			if p.Rich {
+				// Rich paragraphs color each glyph; c carries the opacity.
+				col = g.Color
+				col.A *= c.A
+			}
+			e, fits := r.atlas.Glyph(gf, g.ID, gs, sub)
 			if !fits {
 				ok = false
 				continue
@@ -541,7 +554,7 @@ func (r *Renderer) text(p *text2.Paragraph, origin geom.Offset, c geom.Color) bo
 			x1, y1 := x0+float32(e.W), y0+float32(e.H)
 			u0, v0 := float32(e.X)*inv, float32(e.Y)*inv
 			u1, v1 := float32(e.X+e.W)*inv, float32(e.Y+e.H)*inv
-			r.quad(x0, y0, x1, y1, u0, v0, u1, v1, c, [4]float32{}, [4]float32{}, [4]float32{})
+			r.quad(x0, y0, x1, y1, u0, v0, u1, v1, col, [4]float32{}, [4]float32{}, [4]float32{})
 		}
 	}
 	return ok

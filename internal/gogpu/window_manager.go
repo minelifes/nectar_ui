@@ -448,6 +448,7 @@ func (a *App) NewWindow(config Config) (*Window, error) {
 	}
 
 	applyHeaderAlignment(platWindow, config.HeaderAlignment)
+	applyWindowButtons(platWindow, config)
 	a.windowManager.add(w)
 
 	// Install live-resize hook for macOS so this window re-renders during drag.

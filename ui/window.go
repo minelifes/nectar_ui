@@ -26,6 +26,8 @@ type nativeWindow struct {
 	title            string
 	fullscreen       bool
 	maximized        bool
+	controls         widgets.WindowControls
+	buttonsInset     float32 // macOS: where the visible traffic lights end
 	subs             map[int]func()
 	nextSub          int
 }
@@ -49,7 +51,8 @@ func (n *nativeWindow) Subscribe(fn func()) func() {
 }
 
 func newNativeWindow(app *gogpu.App, c Config) *nativeWindow {
-	return &nativeWindow{app: app, width: c.Width, height: c.Height, title: c.Title, titleBar: platformTitleBar(c)}
+	return &nativeWindow{app: app, width: c.Width, height: c.Height, title: c.Title,
+		titleBar: platformTitleBar(c), controls: c.Controls}
 }
 
 // osTitle is the title shown by the OS: empty when a custom macOS title bar
@@ -62,7 +65,41 @@ func (n *nativeWindow) osTitle(t string) string {
 }
 
 func (n *nativeWindow) TitleBar() widgets.TitleBarInfo {
-	return titleBarInfo(n.titleBar, n.IsFullscreen())
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return titleBarInfo(n.titleBar, n.fullscreen, n.controls, n.buttonsInset)
+}
+
+func (n *nativeWindow) Controls() widgets.WindowControls {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.controls.Effective()
+}
+
+func (n *nativeWindow) SetControls(c widgets.WindowControls) {
+	n.mu.Lock()
+	same := n.controls.Effective() == c.Effective()
+	n.controls = c
+	n.mu.Unlock()
+	if same {
+		return
+	}
+	cl, mi, mx := windowButtons(c)
+	n.do(func(a *gogpu.App) { a.SetWindowButtons(cl, mi, mx) })
+	n.notify() // TitleBar and WindowButtons rebuild with the new set
+}
+
+// notify runs the WatchWindow subscribers.
+func (n *nativeWindow) notify() {
+	n.mu.Lock()
+	subs := make([]func(), 0, len(n.subs))
+	for _, fn := range n.subs {
+		subs = append(subs, fn)
+	}
+	n.mu.Unlock()
+	for _, fn := range subs {
+		fn()
+	}
 }
 
 // do queues op for the main thread and wakes the loop.
@@ -85,6 +122,10 @@ func (n *nativeWindow) apply() {
 	}
 	w, h := n.app.Size()
 	fs, max := n.app.IsFullscreen(), n.app.IsMaximized()
+	var inset float32
+	if n.titleBar == titleBarMac {
+		inset = float32(n.app.WindowButtonsInset())
+	}
 	n.mu.Lock()
 	if w > 0 && h > 0 {
 		n.width, n.height = w, h
@@ -92,8 +133,11 @@ func (n *nativeWindow) apply() {
 			n.normalW, n.normalH = w, h
 		}
 	}
-	changed := n.fullscreen != fs || n.maximized != max
+	changed := n.fullscreen != fs || n.maximized != max || (inset > 0 && inset != n.buttonsInset)
 	n.fullscreen, n.maximized = fs, max
+	if inset > 0 {
+		n.buttonsInset = inset
+	}
 	var subs []func()
 	if changed {
 		for _, fn := range n.subs {

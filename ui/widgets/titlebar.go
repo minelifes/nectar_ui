@@ -20,8 +20,12 @@ type TitleBarInfo struct {
 	// (28 on macOS); 0 where the app picks any height.
 	Height float32
 	// Leading and Trailing are the widths the system buttons cover at the
-	// left and right edges: keep content out of them.
+	// left and right edges: keep content out of them. On macOS Leading
+	// follows the visible traffic lights (0 with NoControls).
 	Leading, Trailing float32
+	// Controls is which window buttons the window has (Window.Controls):
+	// the system draws them when SystemButtons, WindowButtons otherwise.
+	Controls WindowControls
 }
 
 // WindowDragArea makes its child a handle for moving the window, like a
@@ -92,7 +96,11 @@ func (t TitleBar) Build(ctx BuildContext) Widget {
 	pad.Right += info.Trailing
 	var content Widget = Padding{Padding: pad, Child: t.Child}
 	kids := []Widget{Expanded{Child: content}}
-	if info.Custom && !info.SystemButtons {
+	show := t.Buttons.Show
+	if show == 0 {
+		show = info.Controls
+	}
+	if info.Custom && !info.SystemButtons && show.Effective() != 0 {
 		b := t.Buttons
 		if b.Height <= 0 {
 			b.Height = h
@@ -122,6 +130,8 @@ type WindowButtons struct {
 	Close, CloseColor geom.Color
 	// Width of each button (default 46) and height (default 32).
 	Width, Height float32
+	// Show picks the buttons (zero = the window's Controls).
+	Show WindowControls
 }
 
 func (b WindowButtons) Build(ctx BuildContext) Widget {
@@ -152,11 +162,24 @@ func (b WindowButtons) Build(ctx BuildContext) Widget {
 	if win.IsMaximized() {
 		maxGlyph = glyphRestore
 	}
-	return Row{ShrinkMain: true, Children: []Widget{
-		captionButton{b: b, glyph: glyphMinimize, label: "minimize", onTap: win.Minimize},
-		captionButton{b: b, glyph: maxGlyph, label: "maximize", onTap: win.Maximize},
-		captionButton{b: b, glyph: glyphClose, label: "close", close: true, onTap: win.Close},
-	}}
+	show := b.Show
+	if show == 0 {
+		show = win.Controls()
+	}
+	var kids []Widget
+	if show.Has(MinimizeControl) {
+		kids = append(kids, captionButton{b: b, glyph: glyphMinimize, label: "minimize", onTap: win.Minimize})
+	}
+	if show.Has(MaximizeControl) {
+		kids = append(kids, captionButton{b: b, glyph: maxGlyph, label: "maximize", onTap: win.Maximize})
+	}
+	if show.Has(CloseControl) {
+		kids = append(kids, captionButton{b: b, glyph: glyphClose, label: "close", close: true, onTap: win.Close})
+	}
+	if len(kids) == 0 {
+		return SizedBox{}
+	}
+	return Row{ShrinkMain: true, Children: kids}
 }
 
 // Caption glyphs (10×10, the thin Windows 11 style).

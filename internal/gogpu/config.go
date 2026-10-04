@@ -119,6 +119,12 @@ type Config struct {
 	// No-op on Windows and Linux where title position is not OS-configurable.
 	HeaderAlignment HeaderAlignment
 
+	// HideClose, HideMinimize and HideMaximize hide the native window
+	// buttons one by one (macOS traffic lights; Windows title-bar buttons).
+	// See Window.SetWindowButtons for the platform details.
+	HideClose, HideMinimize, HideMaximize bool
+	windowButtonsSet                      bool // WithWindowButtons was called
+
 	// MinWidth is the minimum window width in logical pixels (0 = no constraint).
 	MinWidth int
 
@@ -362,6 +368,15 @@ func (c Config) WithMinSize(width, height int) Config {
 func (c Config) WithMaxSize(width, height int) Config {
 	c.MaxWidth = width
 	c.MaxHeight = height
+	return c
+}
+
+// WithWindowButtons chooses which native window buttons are shown
+// (close, minimize, maximize — the green fullscreen button on macOS).
+// See Window.SetWindowButtons.
+func (c Config) WithWindowButtons(close, minimize, maximize bool) Config {
+	c.HideClose, c.HideMinimize, c.HideMaximize = !close, !minimize, !maximize
+	c.windowButtonsSet = true
 	return c
 }
 

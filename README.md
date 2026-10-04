@@ -313,6 +313,35 @@ widgets.Column{Cross: widgets.CrossStretch, Children: []widgets.Widget{
 - **Tests:** `tester.WithTitleBar(tester.MacTitleBar)` or `tester.FramelessTitleBar` picks the platform, and `tt.Window.HitTest(x, y)` says whether a press would drag the window (`caption`), resize it, or reach the app (`client`).
 - **Try it:** `CGO_ENABLED=0 go run ./examples/titlebar`.
 
+### Choosing the window buttons
+
+`WithWindowControls` picks which of close / minimize / maximize (the green fullscreen button on macOS) the window shows. Use it for a tool window with only close, or `NoControls` for a design with no standard buttons at all:
+
+```go
+cfg := ui.DefaultConfig().WithCustomTitleBar(true).WithWindowControls(widgets.CloseControl)
+cfg := ui.DefaultConfig().WithCustomTitleBar(true).WithWindowControls(widgets.NoControls) // draw your own
+
+// your own buttons call the window directly:
+widgets.GestureDetector{OnTap: widgets.WindowOf(ctx).Close, Child: myCloseDot}
+
+// change them at any time, e.g. while a task can't be interrupted:
+widgets.WindowOf(ctx).SetControls(widgets.MinimizeControl)
+
+// secondary windows too:
+widgets.OpenWindow(ctx, widgets.WindowOptions{Title: "Inspector", Controls: widgets.CloseControl}, inspector{}, nil)
+```
+
+| Platform | What happens |
+| --- | --- |
+| macOS | The traffic lights are hidden one by one, with a native or a custom title bar. The visible ones keep their place (macOS doesn't reflow them), and `TitleBar`'s left inset shrinks to the last visible one: 36 px for close only, 0 for none. Hiding only hides, so Cmd+W, Cmd+M and the Window menu keep working. |
+| Windows, custom title bar | `TitleBar` / `WindowButtons` draw only the chosen buttons. Without maximize, snapping and double-clicking the bar don't maximize either. |
+| Windows, native title bar | Windows hides minimize and maximize when both are off and greys one when only one is. Close can only be greyed (which also blocks Alt+F4), unless all three are off, which removes them all. |
+| Linux | With a custom title bar (X11) `TitleBar` draws only the chosen buttons. Native X11 / Wayland title bars keep theirs (the window manager draws them). |
+
+- **The functions stay:** `Window.Close`, `Minimize`, `Maximize` and `SetFullscreen` work whatever is shown.
+- **Reading it:** `Window.Controls()` returns the shown set, `TitleBarInfo.Controls` carries it into title bar layouts, and `WindowButtons{Show: ...}` overrides it for one row of drawn buttons.
+- **Tests:** `tester.WithWindowControls(widgets.CloseControl)` sets it from the first frame. The tester's macOS bar moves its inset like a Mac does.
+
 ## Responsive layouts: `LayoutBuilder`
 
 `LayoutBuilder` builds its child during layout, from the constraints its parent gives it (like Flutter's):

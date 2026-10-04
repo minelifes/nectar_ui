@@ -618,6 +618,7 @@ func (a *App) initPlatform() (platform.PlatformWindow, error) {
 	}
 
 	applyHeaderAlignment(platWindow, a.config.HeaderAlignment)
+	applyWindowButtons(platWindow, a.config)
 
 	// Ensure input subsystems exist. Both EventSource() and Input() use
 	// lazy init so callers can register callbacks before Run(). We must

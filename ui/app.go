@@ -61,6 +61,9 @@ func (a *App) Run(root widgets.Widget) error {
 	}
 	kind := platformTitleBar(a.config)
 	cfg = applyTitleBar(cfg, kind)
+	if a.config.Controls != 0 {
+		cfg = cfg.WithWindowButtons(windowButtons(a.config.Controls))
+	}
 	a.gpuApp = gogpu.NewApp(cfg)
 	a.hits = &hitTester{app: a}
 	if kind == titleBarFrameless {

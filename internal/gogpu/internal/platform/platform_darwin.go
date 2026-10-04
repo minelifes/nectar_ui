@@ -413,6 +413,21 @@ func (dw *darwinPlatformWindow) SetLiveResizePhaseHooks(start, end func()) {
 	}
 }
 
+// SetWindowButtons implements platform.WindowButtonsSetter for macOS.
+func (dw *darwinPlatformWindow) SetWindowButtons(close, minimize, maximize bool) {
+	if dw.window != nil {
+		dw.window.SetStandardButtons(close, minimize, maximize)
+	}
+}
+
+// WindowButtonsInset implements platform.WindowButtonsSetter for macOS.
+func (dw *darwinPlatformWindow) WindowButtonsInset() float64 {
+	if dw.window != nil {
+		return dw.window.StandardButtonsTrailingEdge()
+	}
+	return 0
+}
+
 // SetHeaderAlignment implements platform.HeaderAligner for macOS.
 func (dw *darwinPlatformWindow) SetHeaderAlignment(alignment int) {
 	if dw.window != nil {
@@ -2057,3 +2072,5 @@ func (p *darwinPlatform) ShowOpenFileDialog(opts FileDialogOptions) ([]string, e
 func (p *darwinPlatform) ShowSaveFileDialog(opts FileDialogOptions) (string, error) {
 	return showSaveFileDialog(opts)
 }
+
+var _ WindowButtonsSetter = (*darwinPlatformWindow)(nil)

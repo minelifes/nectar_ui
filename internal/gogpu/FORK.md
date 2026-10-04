@@ -50,6 +50,17 @@ listed here:
    `internal/platform/darwin/accessibility.go`,
    `internal/platform/uia_windows.go`; `platform_windows.go` hooks
    `WM_GETOBJECT`)
+5. **Window buttons.** `Config.WithWindowButtons(close, minimize, maximize)`,
+   `Window.SetWindowButtons` / `App.SetWindowButtons` and
+   `WindowButtonsInset` choose the native window buttons one by one. macOS
+   hides individual traffic lights (`setHidden:` on `standardWindowButton:`,
+   re-applied after style-mask changes) and reports where the visible ones
+   end; Windows maps minimize / maximize to `WS_MINIMIZEBOX` /
+   `WS_MAXIMIZEBOX`, greys `SC_CLOSE` and drops `WS_SYSMENU` when none is
+   left (native title bar only). New optional `platform.WindowButtonsSetter`.
+   (new `window_buttons.go`, `internal/platform/window_buttons_windows.go`;
+   `config.go`, `app.go`, `window_manager.go`, `internal/platform/platform.go`,
+   `platform_darwin.go`, `darwin/window.go`, `darwin/selectors.go`)
 
 ## Updating
 

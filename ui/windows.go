@@ -58,6 +58,7 @@ type secondaryWindow struct {
 	title                 string
 	closed                bool
 	fullscreen, maximized bool
+	controls              widgets.WindowControls
 }
 
 // newWindow creates the platform window and its tree (main thread).
@@ -66,11 +67,15 @@ func (a *App) newWindow(g *gogpu.App, cfg Config, root widgets.Widget) (*seconda
 		cfg.Width, cfg.Height = 640, 480
 	}
 	gc := gogpu.DefaultConfig().WithTitle(cfg.Title).WithSize(cfg.Width, cfg.Height)
+	if cfg.Controls != 0 {
+		gc = gc.WithWindowButtons(windowButtons(cfg.Controls))
+	}
 	gw, err := g.NewWindow(gc)
 	if err != nil {
 		return nil, err
 	}
-	sw := &secondaryWindow{app: a, gw: gw, cfg: cfg, width: cfg.Width, height: cfg.Height, title: cfg.Title}
+	sw := &secondaryWindow{app: a, gw: gw, cfg: cfg, width: cfg.Width, height: cfg.Height, title: cfg.Title,
+		controls: cfg.Controls}
 	sw.owner = widgets.NewBuildOwner()
 	sw.pipeline = render.NewPipelineOwner()
 	sw.owner.OnScheduleFrame = g.RequestRedraw
@@ -257,7 +262,23 @@ func (sw *secondaryWindow) Close() {
 	})
 }
 
-func (sw *secondaryWindow) TitleBar() widgets.TitleBarInfo { return widgets.TitleBarInfo{} }
+func (sw *secondaryWindow) TitleBar() widgets.TitleBarInfo {
+	return widgets.TitleBarInfo{Controls: sw.Controls()}
+}
+
+func (sw *secondaryWindow) Controls() widgets.WindowControls {
+	sw.mu.Lock()
+	defer sw.mu.Unlock()
+	return sw.controls.Effective()
+}
+
+func (sw *secondaryWindow) SetControls(c widgets.WindowControls) {
+	sw.mu.Lock()
+	sw.controls = c
+	sw.mu.Unlock()
+	cl, mi, mx := windowButtons(c)
+	sw.app.window.do(func(*gogpu.App) { sw.gw.SetWindowButtons(cl, mi, mx) })
+}
 
 // --- Opening windows from widgets -------------------------------------------
 
@@ -265,6 +286,7 @@ func (sw *secondaryWindow) TitleBar() widgets.TitleBarInfo { return widgets.Titl
 func (a *App) openFromWidgets(opt widgets.WindowOptions, root widgets.Widget, done func(widgets.Window, error)) {
 	cfg := a.config
 	cfg.Title, cfg.Width, cfg.Height = opt.Title, opt.Width, opt.Height
+	cfg.Controls = opt.Controls // not the main window's
 	if opt.Background.A > 0 {
 		cfg.Background = opt.Background
 	}

@@ -90,6 +90,7 @@ var selectors struct {
 
 	// NSWindow - button access
 	standardWindowButton SEL
+	setHidden            SEL
 
 	// NSTextField / NSControl
 	initWithFrame      SEL
@@ -342,6 +343,7 @@ func initSelectors() {
 
 		// NSWindow - button access
 		selectors.standardWindowButton = RegisterSelector("standardWindowButton:")
+		selectors.setHidden = RegisterSelector("setHidden:")
 
 		// NSTextField / NSControl
 		selectors.initWithFrame = RegisterSelector("initWithFrame:")

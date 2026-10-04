@@ -26,9 +26,8 @@ const (
 // resizes it (logical px).
 const resizeBorder = 6
 
-// macTrafficLights is the width the close / minimize / zoom buttons take
-// at the left of a macOS title bar, with a gap after them.
-const macTrafficLights = 76
+// macButtonsGap is the space kept after the last visible traffic light.
+const macButtonsGap = 8
 
 func customTitleBarKind(goos string, wayland bool) titleBarKind {
 	switch goos {
@@ -67,18 +66,28 @@ func applyTitleBar(cfg gogpu.Config, kind titleBarKind) gogpu.Config {
 	return cfg
 }
 
-// titleBarInfo is what widgets.WindowOf(ctx).TitleBar() reports.
-func titleBarInfo(kind titleBarKind, fullscreen bool) widgets.TitleBarInfo {
+// titleBarInfo is what widgets.WindowOf(ctx).TitleBar() reports. inset is
+// where AppKit says the visible traffic lights end (0 = unknown yet).
+func titleBarInfo(kind titleBarKind, fullscreen bool, controls widgets.WindowControls, inset float32) widgets.TitleBarInfo {
 	switch kind {
 	case titleBarMac:
 		if fullscreen { // the title bar and its buttons slide away
-			return widgets.TitleBarInfo{Custom: true, SystemButtons: true}
+			return widgets.TitleBarInfo{Custom: true, SystemButtons: true, Controls: controls}
 		}
-		return widgets.TitleBarInfo{Custom: true, SystemButtons: true, Height: 28, Leading: macTrafficLights}
+		lead := widgets.MacButtonsInset(controls)
+		if inset > 0 && lead > 0 {
+			lead = inset + macButtonsGap
+		}
+		return widgets.TitleBarInfo{Custom: true, SystemButtons: true, Height: 28, Leading: lead, Controls: controls}
 	case titleBarFrameless:
-		return widgets.TitleBarInfo{Custom: true}
+		return widgets.TitleBarInfo{Custom: true, Controls: controls}
 	}
-	return widgets.TitleBarInfo{}
+	return widgets.TitleBarInfo{Controls: controls}
+}
+
+// windowButtons converts controls for gogpu (close, minimize, maximize).
+func windowButtons(c widgets.WindowControls) (bool, bool, bool) {
+	return c.Has(widgets.CloseControl), c.Has(widgets.MinimizeControl), c.Has(widgets.MaximizeControl)
 }
 
 // hitTester answers the OS's "what is at this point?" for frameless

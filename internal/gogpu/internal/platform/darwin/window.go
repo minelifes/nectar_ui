@@ -56,6 +56,10 @@ type Window struct {
 	cachedTitle    string
 	titleTextField ID // NSTextField injected into the traffic-light button container for center/right alignment; 0 when inactive
 
+	// Traffic lights hidden with SetStandardButtons (close, minimize,
+	// zoom). Re-applied after style-mask changes, which can rebuild them.
+	hiddenButtons [3]bool
+
 	// liveResizeHook, if non-nil, is called on every windowDidResize: notification
 	// (including notifications fired during AppKit's live-resize modal loop).
 	// Used by the app layer to render a frame while the event loop is blocked.
@@ -718,6 +722,7 @@ func (w *Window) SetHeaderAlignment(alignment int) {
 		w.clearNativeTitle()
 	}
 	w.alignment = alignment
+	w.applyStandardButtonsLocked()
 }
 
 // injectTitleTextField adds an NSTextField to the title bar's button container
@@ -844,6 +849,58 @@ func (w *Window) SetStyleMask(mask NSWindowStyleMask) {
 	}
 
 	w.nsWindow.SendUint(selectors.setStyleMask, uint64(mask))
+	w.applyStandardButtonsLocked()
+}
+
+// SetStandardButtons shows or hides the traffic-light buttons: close,
+// minimize (miniaturize) and zoom (green; fullscreen). Hidden buttons
+// keep their slot: the visible ones don't move. Hiding a button doesn't
+// disable what it does (Cmd+W, Cmd+M and the window menu still work);
+// remove those menu items to take the action away too.
+func (w *Window) SetStandardButtons(close, minimize, zoom bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.hiddenButtons = [3]bool{!close, !minimize, !zoom}
+	w.applyStandardButtonsLocked()
+}
+
+// applyStandardButtonsLocked pushes hiddenButtons to AppKit. Called with
+// w.mu held.
+func (w *Window) applyStandardButtonsLocked() {
+	if w.nsWindow.IsNil() {
+		return
+	}
+	for i, hidden := range w.hiddenButtons {
+		// NSWindowCloseButton = 0, NSWindowMiniaturizeButton = 1,
+		// NSWindowZoomButton = 2.
+		if b := w.nsWindow.SendUint(selectors.standardWindowButton, uint64(i)); !b.IsNil() {
+			b.SendBool(selectors.setHidden, hidden)
+		}
+	}
+}
+
+// StandardButtonsTrailingEdge returns the x (points, from the window's
+// left edge) where the visible traffic lights end, or 0 when none is
+// visible: content left of it sits under the buttons.
+func (w *Window) StandardButtonsTrailingEdge() float64 {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.nsWindow.IsNil() {
+		return 0
+	}
+	edge := 0.0
+	for i, hidden := range w.hiddenButtons {
+		if hidden {
+			continue
+		}
+		b := w.nsWindow.SendUint(selectors.standardWindowButton, uint64(i))
+		if b.IsNil() {
+			continue
+		}
+		f := b.GetRect(selectors.frame)
+		edge = max(edge, float64(f.Origin.X+f.Size.Width))
+	}
+	return edge
 }
 
 // IsMiniaturized returns true if the window is minimized.

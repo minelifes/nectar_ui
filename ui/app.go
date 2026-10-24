@@ -43,6 +43,48 @@ type App struct {
 
 	winMu   sync.Mutex
 	windows []*secondaryWindow
+
+	// startMode is the saved window mode (fullscreen / maximized / size)
+	// to restore. It's applied once, after the first frame is on screen:
+	// asking macOS for fullscreen before the window has shown anything
+	// left it empty and frozen.
+	startMu   sync.Mutex
+	startMode *startMode
+}
+
+// startMode is a saved window mode waiting for the first frame.
+type startMode struct {
+	fullscreen, maximized bool
+	w, h                  int // 0 = keep the size the window opened with
+}
+
+// restoreMode sets the mode to restore after the first frame. Later calls
+// replace earlier ones (the `nectar dev` state wins over WithWindowState),
+// so the window is only switched once.
+func (a *App) restoreMode(m startMode) {
+	a.startMu.Lock()
+	a.startMode = &m
+	a.startMu.Unlock()
+}
+
+// applyStartMode runs on the render thread after a frame was drawn; the
+// requests reach the window on the main thread before the next one.
+func (a *App) applyStartMode() {
+	a.startMu.Lock()
+	m := a.startMode
+	a.startMode = nil
+	a.startMu.Unlock()
+	if m == nil {
+		return
+	}
+	switch {
+	case m.fullscreen:
+		a.window.SetFullscreen(true)
+	case m.maximized:
+		a.window.Maximize()
+	case m.w > 0 && m.h > 0:
+		a.window.SetSize(m.w, m.h)
+	}
 }
 
 // NewApp creates an application with the given config.
@@ -88,15 +130,10 @@ func (a *App) Run(root widgets.Widget) error {
 	}
 	a.buildOwner.Resources = a.resources
 	a.buildOwner.OpenWindow = a.openFromWidgets
-	a.setupDev()
-	if restore {
-		switch {
-		case saved.Fullscreen:
-			a.window.SetFullscreen(true)
-		case saved.Maximized:
-			a.window.Maximize()
-		}
+	if restore { // the size is already in the config
+		a.restoreMode(startMode{fullscreen: saved.Fullscreen, maximized: saved.Maximized})
 	}
+	a.setupDev() // its saved mode, if any, replaces the one above
 	// Window requests from widgets are applied here, on the main thread.
 	a.gpuApp.OnUpdate(func(float64) { a.window.apply() })
 
@@ -167,6 +204,7 @@ func (a *App) frame(dc *gogpu.Context) {
 
 	// 4. GPU
 	a.draw(dc, fbW, fbH, scale, a.config.Background, canvas)
+	a.applyStartMode()
 	// Keep frames coming while something animates.
 	if a.buildOwner.HasActiveTickers() {
 		a.gpuApp.RequestRedraw()

@@ -116,6 +116,38 @@ func registerWindowDelegateClass() (Class, error) {
 	)
 	ClassAddMethod(cls, selectors.windowDidEndLiveResize, didEndLiveResizeIMP, "v@:@")
 
+	// windowDidChangeBackingProperties: fires when the backing scale factor
+	// changes (moving to another display, or the display's own setting).
+	// Same handling as windowDidChangeScreen: the event loop then gives the
+	// Metal layer the new contentsScale.
+	ClassAddMethod(cls, selectors.windowDidChangeBackingProperties, screenChangedIMP, "v@:@")
+
+	// Native fullscreen transitions (Window.SetFullScreen, the green button,
+	// Ctrl+Cmd+F). While one runs, toggling again is deferred and the
+	// animation's live-resize notifications are ignored.
+	fsStartIMP := ffi.NewCallback(
+		func(self, sel, notification uintptr) uintptr {
+			if win := getWindowFromDelegate(ID(self)); win != nil {
+				win.FullScreenTransitionStarted()
+			}
+			return 0
+		},
+	)
+	fsEndIMP := ffi.NewCallback(
+		func(self, sel, notification uintptr) uintptr {
+			if win := getWindowFromDelegate(ID(self)); win != nil {
+				win.FullScreenTransitionEnded()
+			}
+			return 0
+		},
+	)
+	ClassAddMethod(cls, selectors.windowWillEnterFullScreen, fsStartIMP, "v@:@")
+	ClassAddMethod(cls, selectors.windowWillExitFullScreen, fsStartIMP, "v@:@")
+	ClassAddMethod(cls, selectors.windowDidEnterFullScreen, fsEndIMP, "v@:@")
+	ClassAddMethod(cls, selectors.windowDidExitFullScreen, fsEndIMP, "v@:@")
+	ClassAddMethod(cls, selectors.windowDidFailToEnterFullScreen, fsEndIMP, "v@:@")
+	ClassAddMethod(cls, selectors.windowDidFailToExitFullScreen, fsEndIMP, "v@:@")
+
 	RegisterClassPair(cls)
 	return cls, nil
 }

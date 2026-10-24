@@ -43,14 +43,8 @@ func (a *App) setupDev() {
 			if err := json.Unmarshal(data, &st); err != nil {
 				return err
 			}
-			switch {
-			case st.Fullscreen:
-				win.SetFullscreen(true)
-			case st.Maximized:
-				win.Maximize()
-			case st.W > 0 && st.H > 0:
-				win.SetSize(st.W, st.H)
-			}
+			// Applied after the first frame, and instead of WithWindowState's.
+			a.restoreMode(startMode{fullscreen: st.Fullscreen, maximized: st.Maximized, w: st.W, h: st.H})
 			return nil
 		}))
 	if os.Getenv(hotreload.EnvControl) == "stdin" {

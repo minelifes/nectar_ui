@@ -62,6 +62,13 @@ var selectors struct {
 	setCollectionBehavior                    SEL
 	windowShouldClose                        SEL
 	windowDidChangeScreen                    SEL
+	windowDidChangeBackingProperties         SEL
+	windowWillEnterFullScreen                SEL
+	windowDidEnterFullScreen                 SEL
+	windowWillExitFullScreen                 SEL
+	windowDidExitFullScreen                  SEL
+	windowDidFailToEnterFullScreen           SEL
+	windowDidFailToExitFullScreen            SEL
 	windowWillStartLiveResize                SEL
 	windowDidEndLiveResize                   SEL
 	windowDidResize                          SEL
@@ -317,6 +324,13 @@ func initSelectors() {
 		selectors.setCollectionBehavior = RegisterSelector("setCollectionBehavior:")
 		selectors.windowShouldClose = RegisterSelector("windowShouldClose:")
 		selectors.windowDidChangeScreen = RegisterSelector("windowDidChangeScreen:")
+		selectors.windowDidChangeBackingProperties = RegisterSelector("windowDidChangeBackingProperties:")
+		selectors.windowWillEnterFullScreen = RegisterSelector("windowWillEnterFullScreen:")
+		selectors.windowDidEnterFullScreen = RegisterSelector("windowDidEnterFullScreen:")
+		selectors.windowWillExitFullScreen = RegisterSelector("windowWillExitFullScreen:")
+		selectors.windowDidExitFullScreen = RegisterSelector("windowDidExitFullScreen:")
+		selectors.windowDidFailToEnterFullScreen = RegisterSelector("windowDidFailToEnterFullScreen:")
+		selectors.windowDidFailToExitFullScreen = RegisterSelector("windowDidFailToExitFullScreen:")
 		selectors.windowWillStartLiveResize = RegisterSelector("windowWillStartLiveResize:")
 		selectors.windowDidEndLiveResize = RegisterSelector("windowDidEndLiveResize:")
 		selectors.windowDidResize = RegisterSelector("windowDidResize:")

@@ -421,6 +421,25 @@ func (s *Surface) Resize(width, height int) {
 	}
 }
 
+// SyncScale updates the layer's contentsScale and frame after the window
+// moved to a display with another backing scale factor (Retina ↔ 1×).
+// Main thread. The drawable size is left alone: the render thread sets it
+// when it reconfigures the surface for the new physical size (RETINA-002).
+// Without this the layer kept the old contentsScale, so a 1× drawable was
+// shown at 2× (the frame filled a quarter of the window) or vice versa.
+func (s *Surface) SyncScale(scale float64) {
+	if s == nil || s.window == nil || s.layer == nil || scale <= 0 {
+		return
+	}
+	s.layer.SetContentsScale(scale)
+	s.window.mu.Lock()
+	viewBounds := s.window.contentView.GetRect(selectors.bounds)
+	s.window.mu.Unlock()
+	if viewBounds.Size.Width > 0 && viewBounds.Size.Height > 0 {
+		s.layer.SetFrame(viewBounds)
+	}
+}
+
 // UpdateSize updates the surface size from the current window dimensions.
 // Call this after the window becomes visible to ensure correct sizing.
 // Sets contentsScale, layer frame, and drawableSize to match Retina backing.

@@ -61,6 +61,24 @@ listed here:
    (new `window_buttons.go`, `internal/platform/window_buttons_windows.go`;
    `config.go`, `app.go`, `window_manager.go`, `internal/platform/platform.go`,
    `platform_darwin.go`, `darwin/window.go`, `darwin/selectors.go`)
+6. **macOS: display moves and fullscreen transitions.**
+   - Moving a window to a display with another backing scale left the
+     `CAMetalLayer`'s `contentsScale` at the old value (only
+     `drawableSize` followed), so a 1× frame showed in a quarter of the
+     window. The event loop now calls `Surface.SyncScale` when the scale
+     changes, and `windowDidChangeBackingProperties:` wakes it like
+     `windowDidChangeScreen:` does.
+   - `SetFullscreen` during a running enter / exit animation cancelled it
+     halfway, and the animation's `windowWillStartLiveResize:` switched
+     on transaction present, leaving the window empty and frozen.
+     `Window.SetFullScreen` now waits for the transition (tracked with the
+     `will/didEnter/ExitFullScreen:` and `didFailTo…` delegate methods),
+     live-resize notifications during it are ignored, and
+     `ToggleFullScreen` no longer holds the window lock while AppKit calls
+     back.
+
+   (`internal/platform/platform_darwin.go`, `darwin/window.go`,
+   `darwin/windowdelegate.go`, `darwin/selectors.go`, `darwin/surface.go`)
 
 ## Updating
 

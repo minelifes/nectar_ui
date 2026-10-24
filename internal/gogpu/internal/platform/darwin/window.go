@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // Errors returned by Window operations.
@@ -51,10 +52,23 @@ type Window struct {
 	// Atomic so the render thread can safely read it without holding mu.
 	inLiveResize atomic.Bool
 
+	// Native fullscreen transition state. AppKit animates enter/exit for
+	// about a second; toggleFullScreen: during it cancels the transition
+	// halfway, and the animation's live-resize notifications must not turn
+	// on transaction present (that left the window empty and frozen).
+	// fsSince is when the transition started (UnixNano, 0 = none);
+	// fsWant is a SetFullScreen request made meanwhile (-1 none, 0, 1).
+	fsSince atomic.Int64
+	fsWant  atomic.Int32
+
 	// Header alignment state.
 	alignment      int // 0=center, 1=left, 2=right
 	cachedTitle    string
 	titleTextField ID // NSTextField injected into the traffic-light button container for center/right alignment; 0 when inactive
+
+	// Traffic lights hidden with SetStandardButtons (close, minimize,
+	// zoom). Re-applied after style-mask changes, which can rebuild them.
+	hiddenButtons [3]bool
 
 	// liveResizeHook, if non-nil, is called on every windowDidResize: notification
 	// (including notifications fired during AppKit's live-resize modal loop).
@@ -83,6 +97,7 @@ func NewWindow(config WindowConfig) (*Window, error) {
 		height:          config.Height,
 		screenChangedCh: make(chan struct{}, 1),
 	}
+	w.fsWant.Store(-1) // no request pending
 
 	// Calculate style mask
 	var styleMask NSWindowStyleMask
@@ -582,6 +597,10 @@ func (w *Window) InLiveResize() bool {
 // StartLiveResize marks the beginning of a live resize operation.
 // Called by the windowWillStartLiveResize: NSWindowDelegate method.
 func (w *Window) StartLiveResize() {
+	if w.InFullScreenTransition() {
+		// The fullscreen animation, not the user dragging a handle.
+		return
+	}
 	w.inLiveResize.Store(true)
 	w.mu.Lock()
 	fn := w.liveResizeStartHook
@@ -718,6 +737,7 @@ func (w *Window) SetHeaderAlignment(alignment int) {
 		w.clearNativeTitle()
 	}
 	w.alignment = alignment
+	w.applyStandardButtonsLocked()
 }
 
 // injectTitleTextField adds an NSTextField to the title bar's button container
@@ -844,6 +864,58 @@ func (w *Window) SetStyleMask(mask NSWindowStyleMask) {
 	}
 
 	w.nsWindow.SendUint(selectors.setStyleMask, uint64(mask))
+	w.applyStandardButtonsLocked()
+}
+
+// SetStandardButtons shows or hides the traffic-light buttons: close,
+// minimize (miniaturize) and zoom (green; fullscreen). Hidden buttons
+// keep their slot: the visible ones don't move. Hiding a button doesn't
+// disable what it does (Cmd+W, Cmd+M and the window menu still work);
+// remove those menu items to take the action away too.
+func (w *Window) SetStandardButtons(close, minimize, zoom bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.hiddenButtons = [3]bool{!close, !minimize, !zoom}
+	w.applyStandardButtonsLocked()
+}
+
+// applyStandardButtonsLocked pushes hiddenButtons to AppKit. Called with
+// w.mu held.
+func (w *Window) applyStandardButtonsLocked() {
+	if w.nsWindow.IsNil() {
+		return
+	}
+	for i, hidden := range w.hiddenButtons {
+		// NSWindowCloseButton = 0, NSWindowMiniaturizeButton = 1,
+		// NSWindowZoomButton = 2.
+		if b := w.nsWindow.SendUint(selectors.standardWindowButton, uint64(i)); !b.IsNil() {
+			b.SendBool(selectors.setHidden, hidden)
+		}
+	}
+}
+
+// StandardButtonsTrailingEdge returns the x (points, from the window's
+// left edge) where the visible traffic lights end, or 0 when none is
+// visible: content left of it sits under the buttons.
+func (w *Window) StandardButtonsTrailingEdge() float64 {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.nsWindow.IsNil() {
+		return 0
+	}
+	edge := 0.0
+	for i, hidden := range w.hiddenButtons {
+		if hidden {
+			continue
+		}
+		b := w.nsWindow.SendUint(selectors.standardWindowButton, uint64(i))
+		if b.IsNil() {
+			continue
+		}
+		f := b.GetRect(selectors.frame)
+		edge = max(edge, float64(f.Origin.X+f.Size.Width))
+	}
+	return edge
 }
 
 // IsMiniaturized returns true if the window is minimized.
@@ -900,15 +972,72 @@ func (w *Window) SetCollectionBehavior(behavior NSWindowCollectionBehavior) {
 
 // ToggleFullScreen toggles native macOS fullscreen mode.
 // Sends the toggleFullScreen: selector to the NSWindow.
-func (w *Window) ToggleFullScreen() {
-	w.mu.Lock()
-	defer w.mu.Unlock()
+// fsTransitionTimeout bounds how long a fullscreen transition is assumed
+// to run: if AppKit never reports its end (the window wasn't on screen, a
+// failure we have no callback for), SetFullScreen works again after it.
+const fsTransitionTimeout = 3 * time.Second
 
-	if w.nsWindow.IsNil() {
+// InFullScreenTransition reports whether an enter/exit fullscreen animation
+// is running.
+func (w *Window) InFullScreenTransition() bool {
+	since := w.fsSince.Load()
+	return since != 0 && time.Since(time.Unix(0, since)) < fsTransitionTimeout
+}
+
+// SetFullScreen enters or leaves native fullscreen. A request made while a
+// transition runs is kept and applied when it ends, instead of toggling
+// again (which cancels the animation halfway).
+func (w *Window) SetFullScreen(on bool) {
+	if w.InFullScreenTransition() {
+		if on {
+			w.fsWant.Store(1)
+		} else {
+			w.fsWant.Store(0)
+		}
 		return
 	}
+	w.fsWant.Store(-1)
+	if on == w.IsFullScreen() {
+		return
+	}
+	// Mark the transition before toggling: AppKit reports willEnter /
+	// willExit from inside toggleFullScreen:, but not if it ignores it.
+	w.fsSince.Store(time.Now().UnixNano())
+	w.ToggleFullScreen()
+}
 
-	w.nsWindow.SendPtr(selectors.toggleFullScreen, 0)
+// FullScreenTransitionStarted is called by windowWillEnterFullScreen: /
+// windowWillExitFullScreen: (also for the green button and Ctrl+Cmd+F).
+func (w *Window) FullScreenTransitionStarted() {
+	w.fsSince.Store(time.Now().UnixNano())
+}
+
+// FullScreenTransitionEnded is called by windowDidEnterFullScreen:,
+// windowDidExitFullScreen: and the didFailTo… variants. It ends a live
+// resize the animation may have begun and applies a request that came in
+// during the transition.
+func (w *Window) FullScreenTransitionEnded() {
+	w.fsSince.Store(0)
+	if w.inLiveResize.Load() {
+		w.EndLiveResize()
+	}
+	if want := w.fsWant.Swap(-1); want >= 0 && (want == 1) != w.IsFullScreen() {
+		w.fsSince.Store(time.Now().UnixNano())
+		w.ToggleFullScreen()
+	}
+	WakeEventLoop()
+}
+
+func (w *Window) ToggleFullScreen() {
+	w.mu.Lock()
+	ns := w.nsWindow
+	w.mu.Unlock()
+	if ns.IsNil() {
+		return
+	}
+	// Without holding w.mu: AppKit calls the fullscreen delegate methods
+	// (which use the window) from inside toggleFullScreen:.
+	ns.SendPtr(selectors.toggleFullScreen, 0)
 }
 
 // IsFullScreen returns true if the window is in native macOS fullscreen mode.

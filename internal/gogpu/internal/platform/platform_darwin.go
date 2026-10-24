@@ -46,6 +46,10 @@ type darwinWindow struct {
 	// Last known scale factor for change detection in PrepareFrame.
 	lastScale float64
 
+	// layerScale is the contentsScale last given to the Metal layer
+	// (syncLayerScale).
+	layerScale float64
+
 	// Physical framebuffer dimensions (device pixels) for cross-DPI change detection.
 	// Zero-initialized so the first pollEvents call always emits EventResize with
 	// the actual physical size, signaling the real display DPI to the app.
@@ -413,6 +417,21 @@ func (dw *darwinPlatformWindow) SetLiveResizePhaseHooks(start, end func()) {
 	}
 }
 
+// SetWindowButtons implements platform.WindowButtonsSetter for macOS.
+func (dw *darwinPlatformWindow) SetWindowButtons(close, minimize, maximize bool) {
+	if dw.window != nil {
+		dw.window.SetStandardButtons(close, minimize, maximize)
+	}
+}
+
+// WindowButtonsInset implements platform.WindowButtonsSetter for macOS.
+func (dw *darwinPlatformWindow) WindowButtonsInset() float64 {
+	if dw.window != nil {
+		return dw.window.StandardButtonsTrailingEdge()
+	}
+	return 0
+}
+
 // SetHeaderAlignment implements platform.HeaderAligner for macOS.
 func (dw *darwinPlatformWindow) SetHeaderAlignment(alignment int) {
 	if dw.window != nil {
@@ -571,10 +590,9 @@ func (dw *darwinPlatformWindow) SetFullscreen(fullscreen bool) {
 	if dw.window == nil {
 		return
 	}
-	// Only toggle if current state differs from desired state.
-	if fullscreen != dw.window.IsFullScreen() {
-		dw.window.ToggleFullScreen()
-	}
+	// Toggles only when the state differs, and waits for a running
+	// enter/exit animation instead of cancelling it.
+	dw.window.SetFullScreen(fullscreen)
 }
 
 // IsFullscreen returns true if the window is in native macOS fullscreen mode.
@@ -662,6 +680,7 @@ func (w *darwinWindow) pollEvents(app *darwin.Application) Event {
 		default:
 		}
 
+		w.syncLayerScale()
 		oldWidth, oldHeight := w.config.Width, w.config.Height
 		oldPhysW, oldPhysH := w.physW, w.physH
 
@@ -1043,6 +1062,19 @@ func (p *darwinPlatform) setCursorImpl(cursorID int) {
 	}
 }
 
+// syncLayerScale gives the Metal layer the window's current backing scale
+// when it changed (the window moved to another display). Main thread, with
+// w.eventMu held.
+func (w *darwinWindow) syncLayerScale() {
+	if w.window == nil || w.surface == nil {
+		return
+	}
+	if scale := w.window.BackingScaleFactor(); scale > 0 && scale != w.layerScale {
+		w.surface.SyncScale(scale)
+		w.layerScale = scale
+	}
+}
+
 // queueEvent adds an event to the event queue.
 func (w *darwinWindow) queueEvent(event Event) {
 	w.events.Push(event)
@@ -1062,6 +1094,7 @@ func (w *darwinWindow) checkResize() {
 		return
 	}
 
+	w.syncLayerScale()
 	oldWidth, oldHeight := w.config.Width, w.config.Height
 	oldPhysW, oldPhysH := w.physW, w.physH
 
@@ -2057,3 +2090,5 @@ func (p *darwinPlatform) ShowOpenFileDialog(opts FileDialogOptions) ([]string, e
 func (p *darwinPlatform) ShowSaveFileDialog(opts FileDialogOptions) (string, error) {
 	return showSaveFileDialog(opts)
 }
+
+var _ WindowButtonsSetter = (*darwinPlatformWindow)(nil)

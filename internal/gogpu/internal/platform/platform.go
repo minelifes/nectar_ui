@@ -411,6 +411,27 @@ type HeaderAligner interface {
 	SetHeaderAlignment(alignment int)
 }
 
+// WindowButtonsSetter is an optional interface for platform windows whose
+// native window buttons can be shown or hidden one by one.
+//
+//   - macOS: the traffic lights (close, minimize, zoom/fullscreen) are hidden
+//     individually; the others keep their place. The actions stay available
+//     (Cmd+W, Cmd+M, the Window menu).
+//   - Windows: minimize / maximize follow WS_MINIMIZEBOX / WS_MAXIMIZEBOX
+//     (Windows hides both when both are off, greys one otherwise; without
+//     maximize, Aero Snap and caption double-click don't maximize). Close
+//     is greyed (SC_CLOSE) with a native title bar, and with none of the
+//     three the system menu goes, hiding every button. Frameless windows
+//     only get the style bits: their buttons are the app's.
+//   - X11 / Wayland: not implemented (the window manager draws them).
+type WindowButtonsSetter interface {
+	SetWindowButtons(close, minimize, maximize bool)
+	// WindowButtonsInset is how far (logical px) the visible system buttons
+	// reach in from the window's leading edge when the content extends
+	// under the title bar (macOS); 0 when none is visible.
+	WindowButtonsInset() float64
+}
+
 // LiveResizeRenderer is an optional interface for platform windows that can
 // receive a callback to trigger a render during live resize. On macOS,
 // AppKit runs a modal tracking loop during window resize that blocks the

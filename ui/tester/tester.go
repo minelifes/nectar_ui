@@ -69,6 +69,12 @@ func WithTitleBar(info widgets.TitleBarInfo) Option {
 	return func(t *Tester) { t.Window.TitleBarInfo = info }
 }
 
+// WithWindowControls makes the window show only these buttons from the
+// first frame, like ui.Config.WithWindowControls.
+func WithWindowControls(c widgets.WindowControls) Option {
+	return func(t *Tester) { t.Window.ControlSet = c }
+}
+
 // New mounts app in a w×h (logical px) surface and runs the first frame.
 func New(app widgets.Widget, w, h int, opts ...Option) *Tester {
 	t := &Tester{

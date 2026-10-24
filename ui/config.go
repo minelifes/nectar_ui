@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	"github.com/minelifes/nectar_ui/ui/geom"
+	"github.com/minelifes/nectar_ui/ui/widgets"
 )
 
 // Config configures the application window.
@@ -22,6 +23,9 @@ type Config struct {
 	// the whole window, including the strip with the window buttons. See
 	// WithCustomTitleBar.
 	CustomTitleBar bool
+	// Controls is which window buttons the window shows (zero = all). See
+	// WithWindowControls.
+	Controls widgets.WindowControls
 	// NoAccessibility keeps the window's semantics (widgets.Semantics)
 	// from the OS screen-reader interface (AT-SPI, NSAccessibility, UI
 	// Automation), which is otherwise updated after frames that change it.
@@ -73,6 +77,31 @@ func (c Config) WithIcon(img image.Image) Config     { c.Icon = img; return c }
 //
 // Widgets can check what they got with widgets.WindowOf(ctx).TitleBar().
 func (c Config) WithCustomTitleBar(on bool) Config { c.CustomTitleBar = on; return c }
+
+// WithWindowControls picks the window buttons: any mix of
+// widgets.CloseControl, MinimizeControl and MaximizeControl, or
+// widgets.NoControls for none (default: all three). Combined with
+// WithCustomTitleBar this gives a completely custom window: hide what the
+// design doesn't have and draw the rest yourself with Window.Close /
+// Minimize / Maximize. Widgets can change it later with
+// widgets.WindowOf(ctx).SetControls.
+//
+//   - macOS: the traffic lights are hidden one by one, with a native or a
+//     custom title bar; the visible ones keep their place, and TitleBar's
+//     left inset shrinks to what's still shown. Hiding only hides: Cmd+W,
+//     Cmd+M and the Window menu keep working.
+//   - Windows: with WithCustomTitleBar, widgets.TitleBar draws only the
+//     chosen buttons. Without maximize, snapping and double-click don't
+//     maximize either. With the native title bar, Windows hides
+//     minimize and maximize when both are off (it greys one otherwise)
+//     and can only grey close (which also blocks Alt+F4), unless all
+//     three are off, which removes them all.
+//   - Linux: with WithCustomTitleBar (X11) TitleBar draws only the chosen
+//     buttons; the native title bars of X11 and Wayland keep theirs.
+func (c Config) WithWindowControls(controls widgets.WindowControls) Config {
+	c.Controls = controls
+	return c
+}
 
 // WithResources mounts fsys under prefix ("" = the root) into the app's
 // resources when the window opens (unmounted when it closes). Widgets read

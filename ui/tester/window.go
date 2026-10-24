@@ -31,8 +31,24 @@ type Window struct {
 	SaveResult string
 	Dialogs    []widgets.FileDialogOptions
 
+	// ControlSet is what SetControls was given (zero = all buttons).
+	ControlSet widgets.WindowControls
+
 	subs    map[int]func()
 	nextSub int
+}
+
+func (w *Window) Controls() widgets.WindowControls { return w.ControlSet.Effective() }
+
+// SetControls records the buttons and rebuilds WatchWindow users (the title
+// bar), like the real window.
+func (w *Window) SetControls(c widgets.WindowControls) {
+	if w.ControlSet.Effective() == c.Effective() {
+		w.ControlSet = c
+		return
+	}
+	w.ControlSet = c
+	w.changed()
 }
 
 // Subscribe implements widgets.Listenable (widgets.WatchWindow): fn runs
@@ -105,7 +121,17 @@ func (w *Window) Maximize()         { w.Maximized = !w.Maximized; w.changed() }
 func (w *Window) Minimize()         { w.Minimized = true }
 func (w *Window) Close()            { w.Closed = true }
 
-func (w *Window) TitleBar() widgets.TitleBarInfo { return w.TitleBarInfo }
+// TitleBar returns TitleBarInfo with the window's Controls; on a macOS-style
+// bar (SystemButtons with a Leading inset) the inset follows the visible
+// traffic lights like on a Mac.
+func (w *Window) TitleBar() widgets.TitleBarInfo {
+	info := w.TitleBarInfo
+	info.Controls = w.ControlSet
+	if info.SystemButtons && info.Leading > 0 {
+		info.Leading = widgets.MacButtonsInset(w.ControlSet)
+	}
+	return info
+}
 
 // Title bars of the platforms, for TitleBarInfo.
 var (

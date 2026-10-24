@@ -43,6 +43,14 @@ type Window interface {
 	// TitleBar describes the title-bar area when the app draws its own
 	// (ui.Config.WithCustomTitleBar); the zero value otherwise.
 	TitleBar() TitleBarInfo
+
+	// Controls is which window buttons the window shows (close, minimize,
+	// maximize); SetControls changes them. Hidden buttons only go away
+	// visually: Close, Minimize and Maximize keep working, so a custom
+	// design can call them from its own widgets. See ui.Config.WithWindowControls
+	// for what each platform does.
+	Controls() WindowControls
+	SetControls(c WindowControls)
 }
 
 // WindowOf returns the window hosting ctx's tree. It never returns nil:
@@ -68,25 +76,30 @@ func WatchWindow(ctx BuildContext) Window {
 
 type noWindow struct{}
 
-func (noWindow) Size() (int, int)       { return 0, 0 }
-func (noWindow) SetSize(int, int)       {}
-func (noWindow) SetMinSize(int, int)    {}
-func (noWindow) SetMaxSize(int, int)    {}
-func (noWindow) Title() string          { return "" }
-func (noWindow) SetTitle(string)        {}
-func (noWindow) IsFullscreen() bool     { return false }
-func (noWindow) SetFullscreen(bool)     {}
-func (noWindow) IsMaximized() bool      { return false }
-func (noWindow) Maximize()              {}
-func (noWindow) Minimize()              {}
-func (noWindow) Close()                 {}
-func (noWindow) TitleBar() TitleBarInfo { return TitleBarInfo{} }
+func (noWindow) Size() (int, int)           { return 0, 0 }
+func (noWindow) SetSize(int, int)           {}
+func (noWindow) SetMinSize(int, int)        {}
+func (noWindow) SetMaxSize(int, int)        {}
+func (noWindow) Title() string              { return "" }
+func (noWindow) SetTitle(string)            {}
+func (noWindow) IsFullscreen() bool         { return false }
+func (noWindow) SetFullscreen(bool)         {}
+func (noWindow) IsMaximized() bool          { return false }
+func (noWindow) Maximize()                  {}
+func (noWindow) Minimize()                  {}
+func (noWindow) Close()                     {}
+func (noWindow) TitleBar() TitleBarInfo     { return TitleBarInfo{} }
+func (noWindow) Controls() WindowControls   { return AllControls }
+func (noWindow) SetControls(WindowControls) {}
 
 // WindowOptions describe a window opened with OpenWindow.
 type WindowOptions struct {
 	Title         string
 	Width, Height int        // logical pixels; 0 = 640×480
 	Background    geom.Color // zero = the app's
+	// Controls is which window buttons it has (zero = all; e.g.
+	// CloseControl for a tool window, NoControls for none).
+	Controls WindowControls
 }
 
 // ErrNoWindows is reported where windows can't be opened (tests).

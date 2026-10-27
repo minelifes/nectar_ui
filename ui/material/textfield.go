@@ -120,6 +120,23 @@ func (s *textFieldState) build(ctx w.BuildContext) w.Widget {
 		labelColor = accent
 		indicator = accent
 	}
+	// State colors from the theme win over the defaults worked out above.
+	var states States
+	if s.hovered && !tf.Disabled {
+		states |= StateHovered
+	}
+	if s.focused {
+		states |= StateFocused
+	}
+	if isErr {
+		states |= StateError
+	}
+	if tf.Disabled {
+		states |= StateDisabled
+	}
+	indicator = st.BorderColors.Resolve(states, indicator)
+	labelColor = st.LabelColors.Resolve(states, labelColor)
+	content = st.TextColors.Resolve(states, content)
 	t := s.float.Value()
 	if tf.Label == "" {
 		t = 1
@@ -159,33 +176,42 @@ func (s *textFieldState) build(ctx w.BuildContext) w.Widget {
 	// sits in the upper 24px (M3: 24 above, 8 below). The bottom used to be
 	// 8 in every case, so outlined and label-less fields showed their text
 	// 4px low.
-	top, bottom := float32(16), float32(16)
+	pad := geom.InsetsLTRB(16, 16, 16, 16)
 	if tf.Label != "" && !tf.Outlined {
-		top, bottom = 24, 8
+		pad.Top, pad.Bottom = 24, 8
 	}
+	minH := float32(56)
+	if st.ContentPadding != nil {
+		pad, minH = *st.ContentPadding, 0
+	}
+	top, bottom := pad.Top, pad.Bottom
 	stackKids := []w.Widget{w.Padding{Padding: geom.InsetsLTRB(0, top, 0, bottom), Child: editArea}}
 	if hint != nil {
 		stackKids = append(stackKids, w.Positioned{Left: w.At(0), Top: w.At(top), Child: hint})
 	}
-	// prefixW is how far the text starts right of the no-icon position:
-	// 12 padding + 24 icon (the 16 text padding is the same either way).
-	const prefixW = 12 + 24
-	// Floating label: resting = BodyLarge centered, floating = BodySmall on top.
+	// textX is where the text starts from the field edge: the content
+	// padding, after the icon (12 padding + 24) when there is one.
+	textX := pad.Left
+	if tf.Prefix != nil {
+		textX += 12 + 24
+	}
+	// Floating label: resting = BodyLarge, floating = BodySmall on top. The
+	// positions follow the content padding (defaults in the comments).
 	if tf.Label != "" {
 		size := widgetsLerp(16, 12, t)
-		y := widgetsLerp(16, 8, t)
+		// Filled: resting 8 above the text line (16), floated in the band
+		// above it (8).
+		y := widgetsLerp(top-8, max(top-16, 0), t)
 		x := float32(0)
 		if tf.Outlined {
 			// The content stack starts at the field top: resting, the label
-			// is centered like the text (18 + 20/2 = 28); floated, it sits
-			// centered on the border line (-7.5 + 15/2 = 0).
-			y = widgetsLerp(18, -7.5, t)
-			// With a leading icon the resting label sits after the icon, but
-			// the floated one moves to the border start (16px from the edge,
-			// inside the notch), sliding over the icon (M3).
-			if tf.Prefix != nil {
-				x = widgetsLerp(0, -prefixW, t)
-			}
+			// is centered on the text line (top 16 + 2: 18 + 20/2 = 28);
+			// floated, it sits centered on the border line (-7.5 + 15/2 = 0).
+			y = widgetsLerp(top+2, -7.5, t)
+			// The resting label sits where the text starts (after an icon);
+			// the floated one moves to the border start, 16px from the edge
+			// inside the notch, sliding over the icon (M3).
+			x = widgetsLerp(0, 16-textX, t)
 		}
 		ls := pickT(st.LabelStyle, Styled(th.Text.BodyLarge, labelColor))
 		ls.Color = labelColor
@@ -196,16 +222,14 @@ func (s *textFieldState) build(ctx w.BuildContext) w.Widget {
 	row := []w.Widget{}
 	iconCol := pick(st.IconColor, sc.OnSurfaceVariant)
 	if tf.Disabled {
-		iconCol = content
+		dc, _ := disabledColors(sc)
+		iconCol = dc
 	}
+	iconCol = st.IconColors.Resolve(states, iconCol)
 	if tf.Prefix != nil {
 		row = append(row, w.Padding{Padding: geom.InsetsLTRB(12, 0, 0, 0), Child: w.Icon{Icon: tf.Prefix, Size: 24, Color: iconCol}})
 	}
-	padL, padR := float32(16), float32(16)
-	if tf.Prefix != nil {
-		padL = 16
-	}
-	row = append(row, w.Expanded{Child: w.Padding{Padding: geom.InsetsLTRB(padL, 0, padR, 0), Child: w.Stack{Children: stackKids}}})
+	row = append(row, w.Expanded{Child: w.Padding{Padding: geom.InsetsLTRB(pad.Left, 0, pad.Right, 0), Child: w.Stack{Children: stackKids}}})
 	suffix := tf.Suffix
 	if isErr && suffix == nil {
 		suffix = iconError
@@ -213,7 +237,7 @@ func (s *textFieldState) build(ctx w.BuildContext) w.Widget {
 	if suffix != nil {
 		col := iconCol
 		if isErr {
-			col = errC
+			col = st.IconColors.Resolve(states, errC)
 		}
 		var sw w.Widget = w.Icon{Icon: suffix, Size: 24, Color: col}
 		if tf.OnSuffix != nil && !tf.Disabled {
@@ -225,29 +249,52 @@ func (s *textFieldState) build(ctx w.BuildContext) w.Widget {
 	}
 
 	outlined := tf.Outlined
-	fill := pick(st.FillColor, sc.SurfaceContainerHighest)
-	if tf.Disabled {
-		fill = sc.OnSurface.WithAlpha(0.04)
+	// Filled fields default to SurfaceContainerHighest; outlined ones only
+	// fill when the theme asks for it.
+	fill := st.FillColor
+	if !outlined {
+		fill = pick(fill, sc.SurfaceContainerHighest)
+		if tf.Disabled {
+			fill = sc.OnSurface.WithAlpha(0.04)
+		}
 	}
+	fill = st.FillColors.Resolve(states, fill)
+	borderW, focusedBorderW := pickF(st.BorderWidth, 1), pickF(st.FocusedBorderWidth, 2)
 	labelW := float32(0)
 	if tf.Label != "" && outlined {
 		labelW = measure(tf.Label, pickT(st.LabelStyle, th.Text.BodySmall)) + 8
 	}
-	bgForNotch := pick(th.ScaffoldBackground, sc.Surface)
+	// The notch is erased with what's behind the border line: the page
+	// above the field's top edge, and the field's fill (if any) below it.
+	pageColor := pick(th.ScaffoldBackground, sc.Surface)
+	innerColor := pageColor
+	if fill.A > 0 {
+		innerColor = fill
+	}
 	focusedNow := s.focused
 	container := w.CustomPaint{
 		Painter: func(c *render.Canvas, o geom.Offset, size geom.Size) {
 			r := geom.RectFrom(o, size)
+			bw := borderW
+			if focusedNow {
+				bw = focusedBorderW
+			}
 			if outlined {
-				bw := float32(1)
-				if focusedNow {
-					bw = 2
+				if fill.A > 0 {
+					c.FillRoundRect(r, radius, fill)
 				}
-				c.StrokeRoundRect(r, radius, bw, indicator)
-				// Notch: erase the border behind the floated label (the
-				// label itself is painted afterwards, on top).
-				if labelW > 0 && s.float.Value() > 0 {
-					c.FillRect(geom.Rect{X: o.X + 12, Y: o.Y - 2, W: labelW * s.float.Value(), H: 4}, bgForNotch)
+				if bw > 0 && indicator.A > 0 {
+					c.StrokeRoundRect(r, radius, bw, indicator)
+					// Notch: erase the border behind the floated label (the
+					// label itself is painted afterwards, on top).
+					if labelW > 0 && s.float.Value() > 0 {
+						nw := labelW * s.float.Value()
+						c.FillRect(geom.Rect{X: o.X + 12, Y: o.Y - bw, W: nw, H: bw}, pageColor)
+						c.FillRect(geom.Rect{X: o.X + 12, Y: o.Y, W: nw, H: bw}, pageColor)
+						if innerColor != pageColor {
+							c.FillRect(geom.Rect{X: o.X + 12, Y: o.Y, W: nw, H: bw}, innerColor)
+						}
+					}
 				}
 				return
 			}
@@ -257,13 +304,11 @@ func (s *textFieldState) build(ctx w.BuildContext) w.Widget {
 			if s.hovered && !tf.Disabled {
 				c.FillRoundRect(r, radius, sc.OnSurface.WithAlpha(HoverOpacity))
 			}
-			h := float32(1)
-			if focusedNow {
-				h = 2
+			if bw > 0 {
+				c.FillRect(geom.Rect{X: r.X, Y: r.Bottom() - bw, W: r.W, H: bw}, indicator)
 			}
-			c.FillRect(geom.Rect{X: r.X, Y: r.Bottom() - h, W: r.W, H: h}, indicator)
 		},
-		Child: w.ConstrainedBox{Constraints: geom.Constraints{MinW: 0, MaxW: geom.Inf, MinH: 56, MaxH: geom.Inf},
+		Child: w.ConstrainedBox{Constraints: geom.Constraints{MinW: 0, MaxW: geom.Inf, MinH: minH, MaxH: geom.Inf},
 			Child: w.Row{Cross: w.CrossCenter, Children: row}},
 	}
 	var field w.Widget = container
@@ -281,6 +326,7 @@ func (s *textFieldState) build(ctx w.BuildContext) w.Widget {
 	if tf.Disabled {
 		supportColor = content
 	}
+	supportColor = st.HelperColors.Resolve(states, supportColor)
 	if support != "" || tf.MaxLength > 0 {
 		hs := pickT(st.HelperStyle, th.Text.BodySmall)
 		hs.Color = supportColor

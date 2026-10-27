@@ -177,6 +177,10 @@ type CheckboxTheme struct {
 	Size         *float32 // box side (default 18)
 	Radius       *float32
 	BorderWidth  *float32
+	// State colors (see StateColor); a checkbox reports Selected
+	// (checked), Hovered, Error and Disabled. FillColors is the box fill
+	// (checked), BorderColors its outline (unchecked), CheckColors the mark.
+	FillColors, BorderColors, CheckColors StateColor
 }
 
 // RadioTheme styles Radio.
@@ -185,6 +189,9 @@ type RadioTheme struct {
 	UnselectedColor geom.Color
 	OverlayColor    geom.Color
 	Radius          *float32 // outer ring (default 10)
+	// Colors is the ring and dot by state (see StateColor): Selected,
+	// Hovered and Disabled; Normal is the unselected ring.
+	Colors StateColor
 }
 
 // SwitchTheme styles Switch.
@@ -197,6 +204,9 @@ type SwitchTheme struct {
 	PressedThumbColor  geom.Color
 	ThumbIconColor     geom.Color
 	OverlayColor       geom.Color
+	// State colors (see StateColor); a switch reports Selected (on),
+	// Hovered, Pressed and Disabled. Normal is the off look.
+	TrackColors, ThumbColors, TrackOutlineColors, ThumbIconColors StateColor
 }
 
 // SliderTheme styles Slider and RangeSlider.
@@ -236,6 +246,28 @@ type InputDecorationTheme struct {
 	HintStyle        text.Style
 	HelperStyle      text.Style
 	Radius           *float32
+	// ContentPadding is the space around the text inside the field (left
+	// and right from the field edge, or from a prefix / suffix icon; top and
+	// bottom around the text line), like Flutter's contentPadding. Default
+	// M3: 16 on every side, or 24 above / 8 below in a filled field with a
+	// label. When set, the field is as tall as the padding plus the text
+	// (no 56px minimum), so smaller values make compact fields.
+	ContentPadding *geom.EdgeInsets
+
+	// State colors (see StateColor): set the states you want to differ
+	// from the defaults; the plain fields above stay the base. A text field
+	// reports Hovered, Focused, Error and Disabled.
+	//
+	// FillColors fills the field; outlined fields fill too when it (or
+	// FillColor) is set. BorderColors is the outline or the filled field's
+	// bottom line; LabelColors the label; TextColors the input text;
+	// IconColors the prefix and suffix icons; HelperColors the helper /
+	// error text and counter.
+	FillColors, BorderColors, LabelColors, TextColors, IconColors, HelperColors StateColor
+	// BorderWidth is the outline / bottom line width when not focused
+	// (default 1), FocusedBorderWidth when focused (default 2). Dp(0) draws
+	// no border.
+	BorderWidth, FocusedBorderWidth *float32
 }
 
 // SearchBarTheme styles SearchBar.

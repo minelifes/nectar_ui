@@ -31,7 +31,8 @@ func (Checkbox) CreateState() w.State { return &checkboxState{} }
 
 type checkboxState struct {
 	w.StateBase
-	on *w.Animated
+	on      *w.Animated
+	hovered bool
 }
 
 func (s *checkboxState) InitState() {
@@ -64,6 +65,21 @@ func (s *checkboxState) build(ctx w.BuildContext) w.Widget {
 		dc, _ := disabledColors(sc)
 		fill, border, mark = dc, dc, sc.Surface
 	}
+	// State colors: the box fill and mark are the checked look, the outline
+	// the unchecked one (so neither changes color mid-animation).
+	var states States
+	if s.hovered && cb.OnChanged != nil {
+		states |= StateHovered
+	}
+	if cb.Error {
+		states |= StateError
+	}
+	if cb.OnChanged == nil {
+		states |= StateDisabled
+	}
+	fill = st.FillColors.Resolve(states|StateSelected, fill)
+	mark = st.CheckColors.Resolve(states|StateSelected, mark)
+	border = st.BorderColors.Resolve(states, border)
 	ind := cb.Indeterminate
 	var tap func()
 	if cb.OnChanged != nil {
@@ -75,7 +91,7 @@ func (s *checkboxState) build(ctx w.BuildContext) w.Widget {
 	}
 	state = pick(st.OverlayColor, state)
 	target := max(40, side+22)
-	return InkSurface{OnTap: tap, ContentColor: state, Radius: CornerFull, Child: w.CustomPaint{Size: geom.Sz(target, target),
+	return InkSurface{OnTap: tap, OnHover: s.setHovered, ContentColor: state, Radius: CornerFull, Child: w.CustomPaint{Size: geom.Sz(target, target),
 		Painter: func(c *render.Canvas, o geom.Offset, size geom.Size) {
 			box := geom.Rect{X: o.X + (size.W-side)/2, Y: o.Y + (size.H-side)/2, W: side, H: side}
 			t := s.on.Value()
@@ -92,6 +108,12 @@ func (s *checkboxState) build(ctx w.BuildContext) w.Widget {
 				}
 			}
 		}}}
+}
+
+func (s *checkboxState) setHovered(h bool) {
+	if h != s.hovered {
+		s.SetState(func() { s.hovered = h })
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -112,7 +134,14 @@ func (r Radio[T]) CreateState() w.State { return &radioState[T]{} }
 
 type radioState[T comparable] struct {
 	w.StateBase
-	on *w.Animated
+	on      *w.Animated
+	hovered bool
+}
+
+func (s *radioState[T]) setHovered(h bool) {
+	if h != s.hovered {
+		s.SetState(func() { s.hovered = h })
+	}
 }
 
 func (s *radioState[T]) InitState() {
@@ -141,6 +170,15 @@ func (s *radioState[T]) build(ctx w.BuildContext) w.Widget {
 		on, _ = disabledColors(sc)
 		off = on
 	}
+	var states States
+	if s.hovered && r.OnChanged != nil {
+		states |= StateHovered
+	}
+	if r.OnChanged == nil {
+		states |= StateDisabled
+	}
+	on = st.Colors.Resolve(states|StateSelected, on)
+	off = st.Colors.Resolve(states, off)
 	var tap func()
 	if r.OnChanged != nil {
 		tap = func() { r.OnChanged(r.Value) }
@@ -150,7 +188,7 @@ func (s *radioState[T]) build(ctx w.BuildContext) w.Widget {
 		state = on
 	}
 	target := max(40, 2*ring+20)
-	return InkSurface{OnTap: tap, ContentColor: pick(st.OverlayColor, state), Radius: CornerFull, Child: w.CustomPaint{Size: geom.Sz(target, target),
+	return InkSurface{OnTap: tap, OnHover: s.setHovered, ContentColor: pick(st.OverlayColor, state), Radius: CornerFull, Child: w.CustomPaint{Size: geom.Sz(target, target),
 		Painter: func(c *render.Canvas, o geom.Offset, size geom.Size) {
 			ctr := geom.Pt(o.X+size.W/2, o.Y+size.H/2)
 			t := s.on.Value()
@@ -231,6 +269,21 @@ func (s *switchState) build(ctx w.BuildContext) w.Widget {
 			offThumb, onThumb = sc.OnSurface.WithAlpha(0.38), sc.Surface
 			border = sc.OnSurface.WithAlpha(0.12)
 		}
+		// State colors: "on" parts resolve as Selected, "off" parts not.
+		var states States
+		if s.hovered && enabled {
+			states |= StateHovered
+		}
+		if s.pressed && enabled {
+			states |= StatePressed
+		}
+		if !enabled {
+			states |= StateDisabled
+		}
+		onS := states | StateSelected
+		offTrack, onTrack = st.TrackColors.Resolve(states, offTrack), st.TrackColors.Resolve(onS, onTrack)
+		offThumb, onThumb = st.ThumbColors.Resolve(states, offThumb), st.ThumbColors.Resolve(onS, onThumb)
+		border = st.TrackOutlineColors.Resolve(states, border)
 		c.FillRoundRect(track, 16, LerpColor(offTrack, onTrack, t))
 		if t < 1 {
 			c.StrokeRoundRect(track, 16, 2, border.WithAlpha(border.A*(1-t)))
@@ -249,11 +302,11 @@ func (s *switchState) build(ctx w.BuildContext) w.Widget {
 		}
 		thumb := LerpColor(offThumb, onThumb, t)
 		if s.pressed && enabled && t > 0.5 {
-			thumb = pick(st.PressedThumbColor, sc.PrimaryContainer)
+			thumb = st.ThumbColors.Resolve(onS, pick(st.PressedThumbColor, sc.PrimaryContainer))
 		}
 		c.FillCircle(geom.Pt(cx, cy), d/2, thumb)
 		if thumbIcon && t > 0.5 {
-			c.DrawIcon(iconCheck, geom.Rect{X: cx - 8, Y: cy - 8, W: 16, H: 16}, pick(st.ThumbIconColor, sc.OnPrimaryContainer).WithAlpha((t-0.5)*2))
+			c.DrawIcon(iconCheck, geom.Rect{X: cx - 8, Y: cy - 8, W: 16, H: 16}, st.ThumbIconColors.Resolve(onS, pick(st.ThumbIconColor, sc.OnPrimaryContainer)).WithAlpha((t-0.5)*2))
 		}
 	}
 	var child w.Widget = w.CustomPaint{Size: geom.Sz(52, 40), Painter: paint}

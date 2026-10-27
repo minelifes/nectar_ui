@@ -44,7 +44,8 @@ internal/
 ├── app/                     root widget, navigation shell, routes
 │   ├── app.go               theme + state wiring
 │   ├── shell.go             app bar + navigation rail
-│   └── routes.go            top-level pages (add yours here)
+│   ├── router.go            app.Go(ctx, "/path"), app.CurrentPath(ctx)
+│   └── routes.go            pages by path (nectar add route writes here)
 ├── theme/                   the look: seed color, light/dark themes, type tweaks
 │   ├── theme.go
 │   └── tokens.go            spacing and radius tokens
@@ -57,9 +58,8 @@ tests/                       headless UI tests (tap, type, find text)
 ```
 
 - **Change the brand color:** `theme.Seed` in `internal/theme/theme.go`. All M3 color roles are generated from it, for both light and dark.
-- **Add a page:**
-  1. Create `internal/pages/<name>/<name>.go` with a `Page` widget.
-  2. Add a `Route` for it in `internal/app/routes.go`.
+- **Add a page:** `nectar add route /settings/profile Profile -icon person` creates `internal/pages/settings/profile/profile.go` and adds it to `Routes`. Open it from any widget with `app.Go(ctx, "/settings/profile")`; `-hidden` keeps it out of the navigation rail.
+- **Generate code:** `nectar create <kind> <Name>`, with kinds `stateless`, `stateful`, `page`, `component`, `model`, `mvvm`, `dialog` and `service`. `nectar create mvvm Todo -route /todos` writes a whole feature (model, view model, view, test) in `internal/features/todo` and registers it. Run `nectar create` to see every kind and flag.
 - **Share state:** add fields to `state.Settings` (keep the struct comparable). Read them with `state.Of(ctx)` and change them with `state.Update(ctx, func(s *state.Settings){…})`.
 
 Widgets come in three shapes, and a widget is whichever interface it implements:

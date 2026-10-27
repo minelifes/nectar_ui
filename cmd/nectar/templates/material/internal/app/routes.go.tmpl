@@ -9,15 +9,22 @@ import (
 	"[[.Module]]/internal/pages/settings"
 )
 
-// Route is a top-level destination in the navigation rail. Add a page:
-// create internal/pages/<name>, then add it here.
+// Route is a page of the app. Add one with
+//
+//	nectar add route /settings/profile Profile
+//
+// (it creates internal/pages/settings/profile and the entry below), and
+// show it from any widget with app.Go(ctx, "/settings/profile").
 type Route struct {
+	Path  string // "/settings/profile"; the first route is the start page
 	Label string
 	Icon  *vector.Icon
-	Page  func() w.Widget
+	// Hidden routes are reachable with Go but have no navigation rail entry.
+	Hidden bool
+	Page   func() w.Widget
 }
 
 var Routes = []Route{
-	{Label: "Home", Icon: icons.Home, Page: func() w.Widget { return home.Page{} }},
-	{Label: "Settings", Icon: icons.Settings, Page: func() w.Widget { return settings.Page{} }},
+	{Path: "/", Label: "Home", Icon: icons.Home, Page: func() w.Widget { return home.Page{} }},
+	{Path: "/settings", Label: "Settings", Icon: icons.Settings, Page: func() w.Widget { return settings.Page{} }},
 }

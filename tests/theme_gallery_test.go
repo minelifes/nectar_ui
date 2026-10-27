@@ -75,6 +75,8 @@ func themeGallery(th m.Theme, dark bool) w.Widget {
 		m.LinearProgressIndicator{Value: 0.4}, w.Row{Children: []w.Widget{m.CircularProgressIndicator{Value: 0.6}, m.CircularProgressIndicator{Value: 0.3, Size: 24, StrokeWidth: 2}}},
 		m.TextField{Label: "Filled", Helper: "help", MaxLength: 10}, m.TextField{Label: "Out", Outlined: true, Prefix: icons.Search}, m.TextField{Label: "Err", Error: "bad"},
 		m.TextField{Label: "Dis", Disabled: true, Hint: "h"},
+		// Focused, with text: for TextColors and FocusedBorderWidth.
+		m.TextField{Label: "Typed", Controller: w.NewTextController("abc"), Autofocus: true},
 		m.SearchBar{Hint: "search"},
 		w.Row{Children: []w.Widget{m.DropdownMenu{Label: "Pick", Entries: []m.DropdownEntry{{Label: "one", Value: 1}}, Selected: 1, OnSelected: func(any) {}}}},
 		m.TabBar{Tabs: []m.Tab{{Text: "One"}, {Text: "Two", Icon: icons.Home}}, Selected: 1, OnChanged: func(int) {}},
@@ -193,6 +195,8 @@ func probe(t reflect.Type, n int, alt int) (reflect.Value, bool) {
 	case reflect.TypeFor[*bool]():
 		v := alt == 1
 		return reflect.ValueOf(&v), true
+	case reflect.TypeFor[m.StateColor]():
+		return reflect.ValueOf(m.AllStates(c)), true
 	case reflect.TypeFor[*geom.EdgeInsets]():
 		v := geom.Insets(13)
 		return reflect.ValueOf(&v), true

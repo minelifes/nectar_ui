@@ -34,8 +34,28 @@ func main() {
 	}
 	var err error
 	switch cmd, args := os.Args[1], os.Args[2:]; cmd {
-	case "new", "create", "init":
+	case "create", "generate", "g":
+		// `nectar create <kind> <Name>` generates code in an app; any other
+		// `nectar create <dir>` makes a new app, as before.
+		if len(args) >= 1 {
+			if _, ok := kindOf(args[0]); ok {
+				if len(args) == 1 || args[1] == "-h" || args[1] == "--help" {
+					createUsage(nil)
+					return
+				}
+				err = cmdGenerate(args[0], args[1:])
+				break
+			}
+		}
+		if cmd != "create" || len(args) == 0 {
+			createUsage(nil)
+			return
+		}
 		err = cmdNew(args)
+	case "new", "init":
+		err = cmdNew(args)
+	case "add":
+		err = cmdAdd(args)
 	case "build":
 		err = cmdBuild(args)
 	case "dev", "run":
@@ -68,6 +88,8 @@ func main() {
 // commandList is the command table printed by usage.
 var commandList = [][3]string{
 	{"new", "[flags] <dir>", "create an app in <dir>"},
+	{"add", "route <path> <Page>", "add a page at a route path (internal/pages + Routes)"},
+	{"create", "<kind> <Name>", "generate a widget, page, model, mvvm feature, dialog or service"},
 	{"dev", "[flags] [dir]", "run the app, restarting it (state kept) when code changes"},
 	{"theme", "[folder]", "design light and dark themes in a live editor, save them as Go code"},
 	{"build", "[flags] [dir]", "package an app: macOS .app, Windows .exe, Linux + .desktop"},
@@ -81,7 +103,7 @@ func usage() {
 	p.printf("\n%s %s\n\n", p.honey("nectar"), "creates, runs and packages Nectar UI apps.")
 	p.printf("%s\n", p.bold("Usage"))
 	for _, c := range commandList {
-		p.printf("  %s %s%s  %s\n", p.dim("nectar"), p.green(c[0]), p.dim(pad(" "+c[1], 15-len(c[0]))), c[2])
+		p.printf("  %s %s%s  %s\n", p.dim("nectar"), p.green(c[0]), p.dim(pad(" "+c[1], 24-len(c[0]))), c[2])
 	}
 	p.printf("\n%s\n", p.bold("Flags for new"))
 	p.flags(newFlags(&Options{}))

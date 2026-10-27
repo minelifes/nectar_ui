@@ -1,0 +1,90 @@
+// Package [[.Pkg]] is the [[.Label]] feature: Model ([[.Snake]] data),
+// ViewModel (state + operations) and View (the widgets binding to it).
+package [[.Pkg]]
+
+import (
+	"fmt"
+
+	"[[.Engine]]/ui/geom"
+	m "[[.Engine]]/ui/material"
+	"[[.Engine]]/ui/material/icons"
+	"[[.Engine]]/ui/mvvm"
+	w "[[.Engine]]/ui/widgets"
+)
+
+// View is the feature's entry widget: it creates the ViewModel when it
+// enters the tree, disposes it when it leaves, and provides it to the
+// widgets below (mvvm.Use).
+type View struct{}
+
+func (View) Build(w.BuildContext) w.Widget {
+	return mvvm.Provide[*ViewModel]{Create: NewViewModel, Child: page{}}
+}
+
+// page is built once; the parts that change are bindings.
+type page struct{}
+
+func (page) Build(ctx w.BuildContext) w.Widget {
+	vm := mvvm.Use[*ViewModel](ctx)
+	th := m.ThemeOf(ctx)
+	return w.Padding{Padding: geom.Insets(24), Child: w.Column{Cross: w.CrossStretch, Spacing: 12, Children: []w.Widget{
+		w.Text{Text: [[printf "%q" .Label]], Style: m.Styled(th.Text.HeadlineMedium, th.Scheme.OnSurface)},
+		newItemField{},
+		m.TextField{Outlined: true, Prefix: icons.Search, Hint: "Filter", OnChanged: vm.Filter.Set},
+		// Rebuilds only when the count changes.
+		mvvm.Bind(vm.Remaining, func(_ w.BuildContext, n int) w.Widget {
+			return w.Text{Text: fmt.Sprintf("%d open", n), Style: m.Styled(th.Text.LabelLarge, th.Scheme.OnSurfaceVariant)}
+		}),
+		w.Expanded{Child: itemList{}},
+	}}}
+}
+
+// newItemField adds an item on Enter or with the button.
+type newItemField struct{}
+
+func (newItemField) CreateState() w.State { return &newItemState{ctrl: w.NewTextController("")} }
+
+type newItemState struct {
+	w.StateBase
+	ctrl *w.TextEditingController
+}
+
+func (s *newItemState) Build(ctx w.BuildContext) w.Widget {
+	vm := mvvm.Use[*ViewModel](ctx)
+	add := func() {
+		vm.Add(s.ctrl.Text())
+		s.ctrl.SetText("")
+	}
+	return w.Row{Cross: w.CrossCenter, Spacing: 8, Children: []w.Widget{
+		w.Expanded{Child: m.TextField{Controller: s.ctrl, Label: "New item", OnSubmitted: func(string) { add() }}},
+		m.FilledButton{Label: "Add", Icon: icons.Add, OnPressed: add},
+	}}
+}
+
+// itemList rebuilds when Items or Filter change; unchanged rows are equal
+// widgets and are skipped.
+type itemList struct{}
+
+func (itemList) Build(ctx w.BuildContext) w.Widget {
+	vm := mvvm.Use[*ViewModel](ctx)
+	vm.Items.Watch(ctx)
+	vm.Filter.Watch(ctx)
+	var rows []w.Widget
+	for _, it := range vm.Shown() {
+		rows = append(rows, w.KeyedSubtree{ID: it.ID, Child: itemRow{item: it, vm: vm}})
+	}
+	if len(rows) == 0 {
+		return w.Center{Child: w.Text{Text: "Nothing here yet"}}
+	}
+	return w.ListView{Spacing: 4, Children: rows}
+}
+
+type itemRow struct {
+	item [[.Name]]
+	vm   *ViewModel
+}
+
+func (r itemRow) Build(w.BuildContext) w.Widget {
+	id := r.item.ID
+	return m.CheckboxListTile{Title: r.item.Title, Value: r.item.Done, OnChanged: func(bool) { r.vm.Toggle(id) }}
+}

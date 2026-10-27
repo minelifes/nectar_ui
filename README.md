@@ -46,6 +46,37 @@ Name, bundle id, version and icon come from the app's `nectar.json`. The icon is
 - **Windows:** the icon and manifest are written to a temporary `.syso` resource that the Go linker embeds in the `.exe`.
 - **Linux:** the window icon is set at runtime via `ui.Config.WithIcon`.
 
+### Generate code: `nectar add route`, `nectar create`
+
+Run these inside an app (any folder under its `go.mod`):
+
+```sh
+nectar add route /settings/profile Profile -icon person   # page + entry in Routes
+nectar add route /about About -hidden                     # reachable with app.Go only, no rail entry
+nectar create statelessWidget StatusBadge                 # internal/components/status_badge.go
+nectar create statefulWidget Counter                      # widget + State (InitState, DidUpdateWidget, Dispose)
+nectar create model User                                  # internal/models/user.go (json tags, Validate)
+nectar create mvvm Todo -route /todos                     # internal/features/todo: model, viewmodel, view, test
+nectar create page Reports                                # internal/pages/reports (no route)
+nectar create dialog Confirm                              # ShowConfirmDialog(ctx, onClose)
+nectar create service Storage                             # interface + in-memory impl + Provide/Of helpers
+```
+
+| Kind | Writes | Aliases |
+|---|---|---|
+| `stateless` | a `Build(ctx)` widget in `internal/components` | `statelessWidget`, `widget` |
+| `stateful` | a widget and its `State` in `internal/components` | `statefulWidget`, `statefullWidget` |
+| `page` | a page package in `internal/pages/<name>`; `-route` also registers it | `screen` |
+| `component` | a reusable stateless widget in `internal/components` | |
+| `model` | a data struct with `Validate` in `internal/models` | |
+| `mvvm` | a feature package in `internal/features/<name>`: `model.go`, `viewmodel.go` (`mvvm.ViewModel` with a `List`, a filter `Property`, `Computed` counts, `Keep` keys for `nectar dev`), `view.go` (`Provide` + `Use`/`Bind`/`Watch`), `viewmodel_test.go`; `-route` registers its `View` | `feature`, `viewmodel` |
+| `dialog` | `Show<Name>Dialog(ctx, onClose)` with an `AlertDialog` | |
+| `service` | an interface, an in-memory implementation, `Provide<Name>` and `<Name>Of(ctx)` in `internal/services` | |
+
+Names can be written any way (`user-profile`, `userProfile`, `UserProfile`); files are snake_case and types are exported Go names. Flags: `-dir` writes somewhere else in the app, `-route` / `-icon` register a page or mvvm view, and `-force` overwrites. Without `-force`, files that already exist are never touched.
+
+`nectar add route` edits `internal/app/routes.go` in place: it keeps your comments and formatting, adds the import (aliased if the name is taken), and refuses a path that is already there. Routes are real paths. The first route is the start page; `app.Go(ctx, "/settings/profile")` shows any route and `app.CurrentPath(ctx)` reads the current one. Apps made before paths existed get a `Path` field, paths for their existing routes (`/`, `/settings`, …) and `internal/app/router.go`. Their `shell.go` still selects pages by index, so `app.Go` only works once the shell uses the router (compare with a new `nectar new` app).
+
 **Terminal output:** the CLI uses colors and symbols when it writes to a terminal (`nectar dev` shows timestamped status lines, highlighted build errors, and the app's own output indented behind a `│` bar). Piped or redirected output is plain text. Set `NO_COLOR=1` to turn colors off, or `FORCE_COLOR=1` to keep them in a CI log. Windows 10+ consoles are switched to ANSI mode automatically.
 
 `nectar templates` lists the templates. Their sources live in `cmd/nectar/templates` (`[[.Engine]]`-style placeholders, `_name` → `.name`). `NECTAR_BUILD_TEST=1 go test ./cmd/nectar` generates each one against this checkout and runs its tests.
@@ -416,6 +447,7 @@ th := m.NewTheme(geom.Hex(0x0B57D0), false)
 th.FilledButton = m.ButtonStyle{Radius: m.Dp(8), Padding: w.Ptr(geom.InsetsHV(20, 0))}
 th.Card = m.CardTheme{Elevation: w.Ptr(0), BorderWidth: m.Dp(1)}
 th.Input = m.InputDecorationTheme{Outlined: w.Ptr(true), Radius: m.Dp(12)}
+th.Input.ContentPadding = w.Ptr(geom.InsetsLTRB(12, 8, 12, 8)) // compact fields: padding + one line tall
 th.NavigationBar = m.NavigationBarTheme{IndicatorColor: geom.Hex(0xFFD8E4)}
 m.App{Theme: th, Home: page}                 // dark mode keeps them (Theme.WithDark)
 
@@ -441,6 +473,22 @@ m.ThemeScope{Theme: t, Child: sidebar}
   ```
 
   Unset (zero) fields in the argument are ignored, so `CopyWith` can't write a zero color or `false` into a plain bool (`ColorScheme.Dark`); assign the field on a copy for those. The methods are generated: after adding a theme type, run `go generate ./ui/material` (a test fails until you do).
+- **State colors** (Flutter's `WidgetStateColor`): `m.StateColor{Normal, Hovered, Focused, Pressed, Selected, Error, FocusedError, Disabled}` sets a color per state. Unset states keep the M3 default for that state, and `m.AllStates(c)` uses one color everywhere. Available on:
+  - **Text fields:** `Input.FillColors`, `BorderColors`, `LabelColors`, `TextColors`, `IconColors` and `HelperColors`, plus `BorderWidth` / `FocusedBorderWidth` (`m.Dp(0)` = no border).
+  - **Checkbox:** `FillColors`, `BorderColors` and `CheckColors`.
+  - **Radio:** `Colors`.
+  - **Switch:** `TrackColors`, `ThumbColors`, `TrackOutlineColors` and `ThumbIconColors`.
+
+  ```go
+  th.Input = m.InputDecorationTheme{
+  	FillColor:    geom.Hex(0xF1EEF8),               // outlined fields fill too when set
+  	BorderColors: m.StateColor{Normal: m.Transparent, Focused: brand, Error: geom.Hex(0xE53935)},
+  }
+  th.Checkbox.FillColors = m.StateColor{Selected: brand, Hovered: brandLight}
+  ```
+
+  When several states hold, the first set one wins: Disabled, FocusedError, Error, Focused, Pressed, Hovered, Selected, Normal. `Normal` applies only at rest, so setting it alone keeps the default focus and error colors.
+- **"No color"** is `m.Transparent`. `geom.Transparent` is the zero color, which themes read as "not set", so it falls back to the default.
 - **Precedence:** the widget's `Style` field, then the theme's component theme, then the M3 default from the scheme.
 - **Unset values:** colors and text styles use their zero value (text styles merge field by field, like `Text`). Numbers, insets, elevation and flags are pointers, because 0 is meaningful (square corners, no shadow): `m.Dp(0)`, `w.Ptr(0)`, `w.Ptr(false)`. For an explicit "no color" use `m.Transparent`.
 - **Outlines** need a color and a width: set only the color for a 1px line, or only the width for the default color.

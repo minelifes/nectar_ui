@@ -1,0 +1,34 @@
+package [[.Pkg]]
+
+import (
+	m "[[.Engine]]/ui/material"
+	w "[[.Engine]]/ui/widgets"
+)
+
+// Show[[.Name]] opens the [[.Label]] dialog; onClose gets true when the user
+// confirmed. Call it from an event handler:
+//
+//	OnPressed: func() { [[.Pkg]].Show[[.Name]](ctx, func(ok bool) { ... }) }
+func Show[[.Name]](ctx w.BuildContext, onClose func(confirmed bool)) {
+	m.ShowDialog(ctx, func(ctx w.BuildContext) w.Widget { return [[.Name]]{} }, func(result any) {
+		if onClose != nil {
+			ok, _ := result.(bool)
+			onClose(ok)
+		}
+	})
+}
+
+// [[.Name]] is the dialog's content.
+type [[.Name]] struct{}
+
+func ([[.Name]]) Build(ctx w.BuildContext) w.Widget {
+	nav := w.NavigatorOf(ctx)
+	return m.AlertDialog{
+		Title:   [[printf "%q" .Label]],
+		Content: "Are you sure?",
+		Actions: []w.Widget{
+			m.TextButton{Label: "Cancel", OnPressed: func() { nav.Pop(false) }},
+			m.FilledButton{Label: "OK", OnPressed: func() { nav.Pop(true) }},
+		},
+	}
+}

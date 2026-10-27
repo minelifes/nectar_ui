@@ -15,14 +15,33 @@ func (Shell) CreateState() w.State { return &shellState{} }
 
 type shellState struct {
 	w.StateBase
-	page int
+	path   string
+	router *Router
+}
+
+func (s *shellState) InitState() {
+	if len(Routes) > 0 {
+		s.path = CleanPath(Routes[0].Path)
+	}
+	s.router = &Router{show: func(p string) { s.SetState(func() { s.path = p }) }}
 }
 
 func (s *shellState) Build(ctx w.BuildContext) w.Widget {
 	st := state.Of(ctx)
-	dests := make([]m.NavigationDestination, len(Routes))
-	for i, r := range Routes {
-		dests[i] = m.NavigationDestination{Icon: r.Icon, Label: r.Label}
+	page, _ := RouteFor(s.path)
+	// The rail lists the routes that aren't Hidden.
+	var dests []m.NavigationDestination
+	var paths []string
+	selected := -1
+	for _, r := range Routes {
+		if r.Hidden {
+			continue
+		}
+		if CleanPath(r.Path) == s.path {
+			selected = len(dests)
+		}
+		dests = append(dests, m.NavigationDestination{Icon: r.Icon, Label: r.Label})
+		paths = append(paths, CleanPath(r.Path))
 	}
 	themeIcon := icons.DarkMode
 	if st.Dark {
@@ -34,9 +53,11 @@ func (s *shellState) Build(ctx w.BuildContext) w.Widget {
 				state.Update(ctx, func(s *state.Settings) { s.Dark = !s.Dark })
 			}}},
 		}},
-		Rail: m.NavigationRail{Destinations: dests, Selected: s.page,
-			OnSelected: func(i int) { s.SetState(func() { s.page = i }) }},
-		// KeyedSubtree gives each page fresh state when switching.
-		Body: w.KeyedSubtree{ID: s.page, Child: Routes[s.page].Page()},
+		Rail: m.NavigationRail{Destinations: dests, Selected: selected,
+			OnSelected: func(i int) { s.router.show(paths[i]) }},
+		// The pages reach the router with Go / CurrentPath; KeyedSubtree
+		// gives each page fresh state when switching.
+		Body: w.Provider[*Router]{Value: s.router, Child: w.Provider[currentPath]{Value: currentPath(s.path),
+			Child: w.KeyedSubtree{ID: s.path, Child: Routes[page].Page()}}},
 	}
 }

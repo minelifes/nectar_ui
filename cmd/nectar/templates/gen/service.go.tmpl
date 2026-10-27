@@ -1,0 +1,50 @@
+package [[.Pkg]]
+
+import (
+	"context"
+	"sync"
+
+	w "[[.Engine]]/ui/widgets"
+)
+
+// [[.Name]] is a service: app logic and I/O (files, network, a database)
+// kept out of widgets and view models, behind an interface so tests can
+// swap it.
+type [[.Name]] interface {
+	Load(ctx context.Context) ([]string, error)
+	Save(ctx context.Context, items []string) error
+}
+
+// New[[.Name]] returns the default implementation (in memory: replace it).
+func New[[.Name]]() [[.Name]] { return &mem[[.Name]]{} }
+
+type mem[[.Name]] struct {
+	mu    sync.Mutex
+	items []string
+}
+
+func (s *mem[[.Name]]) Load(context.Context) ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.items...), nil
+}
+
+func (s *mem[[.Name]]) Save(_ context.Context, items []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.items = append([]string(nil), items...)
+	return nil
+}
+
+// Provide[[.Name]] makes svc available to the widgets below:
+//
+//	[[.Pkg]].Provide[[.Name]]([[.Pkg]].New[[.Name]](), app)
+func Provide[[.Name]](svc [[.Name]], child w.Widget) w.Widget {
+	return w.Provider[ [[.Name]] ]{Value: svc, Child: child}
+}
+
+// [[.Name]]Of returns the [[.Name]] provided above ctx (nil without one).
+func [[.Name]]Of(ctx w.BuildContext) [[.Name]] {
+	svc, _ := w.Peek[ [[.Name]] ](ctx)
+	return svc
+}

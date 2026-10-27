@@ -1,0 +1,28 @@
+package [[.Pkg]]
+
+import "testing"
+
+// View models are plain Go: test them without any UI.
+func TestViewModel(t *testing.T) {
+	vm := NewViewModel()
+	defer vm.Dispose()
+
+	vm.Add("Write the view model")
+	vm.Add("  ") // ignored
+	vm.Add("Bind the view")
+	if n := vm.Items.Len(); n != 2 {
+		t.Fatalf("%d items, want 2", n)
+	}
+	vm.Toggle(vm.Items.At(0).ID)
+	if got := vm.Remaining.Get(); got != 1 {
+		t.Fatalf("remaining %d, want 1", got)
+	}
+	vm.Filter.Set("bind")
+	if got := vm.Visible.Get(); got != 1 {
+		t.Fatalf("visible %d with a filter, want 1", got)
+	}
+	vm.Remove(vm.Items.At(1).ID)
+	if got := vm.Visible.Get(); got != 0 {
+		t.Fatalf("visible %d after removing, want 0", got)
+	}
+}

@@ -1,0 +1,56 @@
+package app
+
+import (
+	"strings"
+
+	w "[[.Engine]]/ui/widgets"
+)
+
+// Router shows one route at a time; the Shell provides it to the pages.
+// Navigate with Go, read the current path with CurrentPath.
+type Router struct {
+	show func(path string)
+}
+
+// currentPath is provided next to the Router so CurrentPath can rebuild
+// its caller when the page changes.
+type currentPath string
+
+// Go shows the route with path (see Routes), from any widget under the
+// Shell. It reports false for an unknown path or outside the Shell.
+func Go(ctx w.BuildContext, path string) bool {
+	r, ok := w.Peek[*Router](ctx)
+	if !ok || r == nil {
+		return false
+	}
+	path = CleanPath(path)
+	if _, ok := RouteFor(path); !ok {
+		return false
+	}
+	r.show(path)
+	return true
+}
+
+// CurrentPath is the path of the page shown; the calling widget rebuilds
+// when it changes.
+func CurrentPath(ctx w.BuildContext) string {
+	p, _ := w.Of[currentPath](ctx)
+	return string(p)
+}
+
+// RouteFor returns the index in Routes of path.
+func RouteFor(path string) (int, bool) {
+	path = CleanPath(path)
+	for i, r := range Routes {
+		if CleanPath(r.Path) == path {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+// CleanPath normalizes a path: a leading "/", no trailing one.
+func CleanPath(p string) string {
+	p = "/" + strings.Trim(strings.TrimSpace(p), "/")
+	return p
+}

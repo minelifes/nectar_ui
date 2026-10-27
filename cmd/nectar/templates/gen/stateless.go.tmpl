@@ -1,0 +1,18 @@
+package [[.Pkg]]
+
+import (
+	m "[[.Engine]]/ui/material"
+	w "[[.Engine]]/ui/widgets"
+)
+
+// [[.Name]] is a stateless widget: it's built from its fields alone. Keep
+// the fields comparable (no slices, maps or funcs) and an unchanged
+// [[.Name]] is skipped on rebuilds.
+type [[.Name]] struct {
+	Text string
+}
+
+func (v [[.Name]]) Build(ctx w.BuildContext) w.Widget {
+	th := m.ThemeOf(ctx)
+	return w.Text{Text: v.Text, Style: m.Styled(th.Text.BodyLarge, th.Scheme.OnSurface)}
+}

@@ -1,0 +1,35 @@
+// Package [[.Pkg]] is the [[.Label]] page[[if .Path]] ([[.Path]])[[end]].
+package [[.Pkg]]
+
+import (
+[[- if not .Components]]
+	"[[.Engine]]/ui/geom"
+[[- end]]
+	m "[[.Engine]]/ui/material"
+	w "[[.Engine]]/ui/widgets"
+[[- if .Components]]
+
+	"[[.Module]]/internal/components"
+[[- end]]
+)
+
+// [[.Name]] is the page widget.
+type [[.Name]] struct{}
+
+func (p [[.Name]]) Build(ctx w.BuildContext) w.Widget {
+	th := m.ThemeOf(ctx)
+[[- if .Components]]
+	return components.Page{
+		Title:    [[printf "%q" .Label]],
+		Subtitle: "Edit [[.File]].",
+		Children: []w.Widget{
+			w.Text{Text: "Content goes here.", Style: m.Styled(th.Text.BodyLarge, th.Scheme.OnSurface)},
+		},
+	}
+[[- else]]
+	return w.Padding{Padding: geom.Insets(24), Child: w.Column{Cross: w.CrossStart, Spacing: 12, Children: []w.Widget{
+		w.Text{Text: [[printf "%q" .Label]], Style: m.Styled(th.Text.HeadlineMedium, th.Scheme.OnSurface)},
+		w.Text{Text: "Edit [[.File]].", Style: m.Styled(th.Text.BodyLarge, th.Scheme.OnSurfaceVariant)},
+	}}}
+[[- end]]
+}

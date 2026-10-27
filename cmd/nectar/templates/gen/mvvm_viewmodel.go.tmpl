@@ -1,0 +1,88 @@
+package [[.Pkg]]
+
+import (
+	"strings"
+
+	"[[.Engine]]/ui/mvvm"
+)
+
+// ViewModel holds the feature's state as observables and the operations on
+// it. It knows nothing about widgets: views bind to its fields (Watch, Bind,
+// Observer), and every change notifies them (publish / subscribe), so only
+// the parts showing a changed value rebuild. Test it without any UI (see
+// viewmodel_test.go).
+type ViewModel struct {
+	mvvm.ViewModel // Dispose releases what Own registered
+
+	Items  *mvvm.List[ [[.Name]] ]   // observable slice
+	Filter *mvvm.Property[string] // observable value
+	// Derived values, recomputed when Items or Filter change.
+	Visible   *mvvm.Computed[int]
+	Remaining *mvvm.Computed[int]
+
+	nextID int
+}
+
+// NewViewModel creates the view model. Keep makes Items and Filter survive
+// `nectar dev` restarts.
+func NewViewModel() *ViewModel {
+	vm := &ViewModel{
+		Items:  mvvm.NewList[ [[.Name]] ]().Keep("[[.Snake]].items"),
+		Filter: mvvm.NewProperty("").Keep("[[.Snake]].filter"),
+		nextID: 1,
+	}
+	for _, it := range vm.Items.Get() {
+		vm.nextID = max(vm.nextID, it.ID+1)
+	}
+	vm.Visible = mvvm.Own(&vm.ViewModel, mvvm.NewComputed(func() int {
+		return len(vm.Shown())
+	}, vm.Items, vm.Filter))
+	vm.Remaining = mvvm.Own(&vm.ViewModel, mvvm.NewComputed(func() int {
+		n := 0
+		for _, it := range vm.Items.Get() {
+			if !it.Done {
+				n++
+			}
+		}
+		return n
+	}, vm.Items))
+	return vm
+}
+
+// Shown returns the items matching Filter.
+func (vm *ViewModel) Shown() [][[.Name]] {
+	f := strings.ToLower(strings.TrimSpace(vm.Filter.Get()))
+	var out [][[.Name]]
+	for _, it := range vm.Items.Get() {
+		if f == "" || strings.Contains(strings.ToLower(it.Title), f) {
+			out = append(out, it)
+		}
+	}
+	return out
+}
+
+// Add appends an item; blank titles are ignored.
+func (vm *ViewModel) Add(title string) {
+	if title = strings.TrimSpace(title); title == "" {
+		return
+	}
+	vm.Items.Append([[.Name]]{ID: vm.nextID, Title: title})
+	vm.nextID++
+}
+
+// Toggle flips the Done flag of item id.
+func (vm *ViewModel) Toggle(id int) {
+	vm.Items.Edit(func(items [][[.Name]]) [][[.Name]] {
+		for i := range items {
+			if items[i].ID == id {
+				items[i].Done = !items[i].Done
+			}
+		}
+		return items
+	})
+}
+
+// Remove deletes item id.
+func (vm *ViewModel) Remove(id int) {
+	vm.Items.RemoveFunc(func(it [[.Name]]) bool { return it.ID == id })
+}

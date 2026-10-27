@@ -225,9 +225,11 @@ var (
 	insetsT   = reflect.TypeFor[geom.EdgeInsets]()
 	durationT = reflect.TypeFor[time.Duration]()
 	styleT    = reflect.TypeFor[text.Style]()
-	fontPtrT  = reflect.TypeFor[*text.Font]()
-	float32T  = reflect.TypeFor[float32]()
-	themeT    = reflect.TypeFor[m.Theme]()
+	// stateColorT fields (BorderColors, ...) show one color per state.
+	stateColorT = reflect.TypeFor[m.StateColor]()
+	fontPtrT    = reflect.TypeFor[*text.Font]()
+	float32T    = reflect.TypeFor[float32]()
+	themeT      = reflect.TypeFor[m.Theme]()
 )
 
 // Field is one editable leaf of material.Theme.
@@ -294,7 +296,7 @@ func fieldsOf(t reflect.Type, prefix, label string) []Field {
 		}
 		path := prefix + f.Name
 		switch {
-		case f.Type == styleT:
+		case f.Type == styleT, f.Type == stateColorT:
 			out = append(out, fieldsOf(f.Type, path+".", label+f.Name+" ")...)
 		case f.Type.Kind() == reflect.Array:
 			for k := range f.Type.Len() {

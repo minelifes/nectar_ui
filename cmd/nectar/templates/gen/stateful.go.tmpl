@@ -1,0 +1,39 @@
+package [[.Pkg]]
+
+import (
+	"fmt"
+
+	m "[[.Engine]]/ui/material"
+	w "[[.Engine]]/ui/widgets"
+)
+
+// [[.Name]] is a stateful widget: its [[.Lower]]State lives as long as the
+// widget stays in the same place in the tree, and SetState rebuilds it.
+type [[.Name]] struct {
+	Initial int
+}
+
+func ([[.Name]]) CreateState() w.State { return &[[.Lower]]State{} }
+
+type [[.Lower]]State struct {
+	w.StateBase
+	count int
+}
+
+// InitState runs once, when the widget enters the tree.
+func (s *[[.Lower]]State) InitState() {
+	s.count = w.WidgetOf[ [[.Name]] ](s).Initial
+}
+
+// DidUpdateWidget runs when the parent rebuilds it with new fields.
+func (s *[[.Lower]]State) DidUpdateWidget(old w.Widget) {}
+
+// Dispose runs when it leaves the tree: stop timers, cancel work here.
+func (s *[[.Lower]]State) Dispose() {}
+
+func (s *[[.Lower]]State) Build(ctx w.BuildContext) w.Widget {
+	return w.Row{Cross: w.CrossCenter, Spacing: 12, Children: []w.Widget{
+		w.Text{Text: fmt.Sprintf("Count: %d", s.count), Style: m.ThemeOf(ctx).Text.BodyLarge},
+		m.FilledButton{Label: "Add", OnPressed: func() { s.SetState(func() { s.count++ }) }},
+	}}
+}

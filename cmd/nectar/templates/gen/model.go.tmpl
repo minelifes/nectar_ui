@@ -1,0 +1,21 @@
+package [[.Pkg]]
+
+import (
+	"errors"
+	"strings"
+)
+
+// [[.Name]] is a plain data model: no widgets, no observables. View models
+// hold and change it; it can be saved as JSON as is.
+type [[.Name]] struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+}
+
+// Validate reports what's wrong with [[.Recv]], if anything.
+func ([[.Recv]] [[.Name]]) Validate() error {
+	if strings.TrimSpace([[.Recv]].Name) == "" {
+		return errors.New("[[.Snake]]: name is empty")
+	}
+	return nil
+}

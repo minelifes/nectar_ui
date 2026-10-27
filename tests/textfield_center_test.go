@@ -95,3 +95,83 @@ func TestOutlinedLabelPositions(t *testing.T) {
 		t.Fatalf("floated label centered at y %v, want 0 (on the border)", y)
 	}
 }
+
+// fieldHeight is the height of the field's box (the first text field).
+func fieldHeight(tt *tester.Tester) float32 {
+	tt.Pump()
+	var h float32
+	var walk func(ro render.RenderObject)
+	walk = func(ro render.RenderObject) {
+		if _, ok := ro.(*render.RenderCustomPaint); ok && h == 0 {
+			if s := ro.Base().Size(); s.W == 480 {
+				h = s.H
+				return
+			}
+		}
+		ro.VisitChildren(walk)
+	}
+	walk(tt.Pipeline.Root())
+	return h
+}
+
+func TestTextFieldContentPadding(t *testing.T) {
+	compact := geom.InsetsLTRB(10, 6, 10, 6)
+	// From the theme.
+	th := m.NewTheme(m.BaselineSeed, false)
+	th.Input.ContentPadding = &compact
+	tt := tester.New(m.App{Theme: th, Home: w.Align{Alignment: geom.TopLeft,
+		Child: w.SizedBox{Width: 480, Child: m.TextField{Outlined: true, Hint: "Filter"}}}}, 600, 200)
+	if h := fieldHeight(tt); h != 6+24+6 {
+		t.Fatalf("compact field is %vpx tall, want 36 (padding + one line)", h)
+	}
+	r, _ := tt.Find("Filter")
+	if r.X != 10 || r.Y != 6 {
+		t.Fatalf("hint at %v, want at (10, 6)", r)
+	}
+	// From the widget's Style, with an icon: the padding starts after it.
+	wide := geom.InsetsLTRB(4, 16, 4, 16)
+	tt = fieldAtTop(m.TextField{Outlined: true, Prefix: icons.Search, Hint: "Filter",
+		Style: m.InputDecorationTheme{ContentPadding: &wide}})
+	if r, _ := tt.Find("Filter"); r.X != 12+24+4 {
+		t.Fatalf("hint at x %v, want 40 (12 + 24 icon + 4)", r.X)
+	}
+	// Typed text follows the same padding.
+	tt.Tap(240, 28)
+	tt.Type("abc")
+	tt.Settle()
+	if y := editCenterY(t, tt, "abc"); math.Abs(float64(y-28)) > 0.5 {
+		t.Fatalf("text centered at y %v, want 28", y)
+	}
+}
+
+func TestContentPaddingKeepsLabelsAligned(t *testing.T) {
+	// Outlined: the resting label is centered on the text line, and the
+	// floated one still sits on the border, 16px from the edge.
+	p := geom.InsetsLTRB(24, 10, 24, 10)
+	tt := fieldAtTop(m.TextField{Outlined: true, Label: "Name", Prefix: icons.Search,
+		Style: m.InputDecorationTheme{ContentPadding: &p}})
+	if y := centerY(t, tt, "Name"); math.Abs(float64(y-(10+12))) > 0.5 {
+		t.Fatalf("resting label centered at y %v, want 22 (text line 10..34)", y)
+	}
+	if r, _ := tt.Find("Name"); r.X != 12+24+24 {
+		t.Fatalf("resting label at x %v, want 60 (after the icon and padding)", r.X)
+	}
+	tt.Tap(240, 20)
+	tt.Settle()
+	r, _ := tt.Find("Name")
+	if math.Abs(float64(r.Y+r.H/2)) > 0.5 || r.X != 16 {
+		t.Fatalf("floated label at %v, want centered on the border at x 16", r)
+	}
+	// Filled with a label: the label floats into the band above the text.
+	f := geom.InsetsLTRB(12, 28, 12, 8)
+	tt = fieldAtTop(m.TextField{Label: "Name", Style: m.InputDecorationTheme{ContentPadding: &f}})
+	tt.Tap(240, 30)
+	tt.Type("Ada")
+	tt.Settle()
+	if y := editCenterY(t, tt, "Ada"); math.Abs(float64(y-(28+12))) > 0.5 {
+		t.Fatalf("text centered at y %v, want 40", y)
+	}
+	if r, _ := tt.Find("Name"); r.Y+r.H > 28 || r.X != 12 {
+		t.Fatalf("floated label at %v, want above the text (y < 28) at x 12", r)
+	}
+}

@@ -57,6 +57,15 @@ func (s Style) Resolved() Style {
 	return s
 }
 
+// CopyWith returns a copy of s with the fields set (non-zero) in over
+// replacing s's, like Flutter's TextStyle.copyWith:
+//
+//	style.CopyWith(text.Style{Color: accent, Size: 18})
+//
+// Zero fields of over keep s's values, so it can't reset a field to zero
+// (assign it on a copy for that).
+func (s Style) CopyWith(over Style) Style { return over.Inherit(s) }
+
 // Inherit returns s with its unset (zero) fields taken from base.
 func (s Style) Inherit(base Style) Style {
 	if s.Font == nil {

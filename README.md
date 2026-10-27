@@ -428,6 +428,19 @@ t.ListTile.Radius = m.Dp(12)
 m.ThemeScope{Theme: t, Child: sidebar}
 ```
 
+- **`CopyWith`** (Flutter's `copyWith`): every component theme, `ButtonStyle`, `ColorScheme`, `TextTheme`, `Theme` itself and `text.Style` have it. The fields set in the argument replace the receiver's, and the rest stay:
+
+  ```go
+  m.Card{Style: m.ThemeOf(ctx).Card.CopyWith(m.CardTheme{Color: someColor}), Child: body}
+
+  t := m.ThemeOf(ctx).CopyWith(m.Theme{   // nested themes merge field by field
+  	Card:         m.CardTheme{Color: someColor},
+  	FilledButton: m.ButtonStyle{Radius: m.Dp(8)},
+  })
+  title := t.Text.TitleLarge.CopyWith(text.Style{Color: accent})
+  ```
+
+  Unset (zero) fields in the argument are ignored, so `CopyWith` can't write a zero color or `false` into a plain bool (`ColorScheme.Dark`); assign the field on a copy for those. The methods are generated: after adding a theme type, run `go generate ./ui/material` (a test fails until you do).
 - **Precedence:** the widget's `Style` field, then the theme's component theme, then the M3 default from the scheme.
 - **Unset values:** colors and text styles use their zero value (text styles merge field by field, like `Text`). Numbers, insets, elevation and flags are pointers, because 0 is meaningful (square corners, no shadow): `m.Dp(0)`, `w.Ptr(0)`, `w.Ptr(false)`. For an explicit "no color" use `m.Transparent`.
 - **Outlines** need a color and a width: set only the color for a 1px line, or only the width for the default color.

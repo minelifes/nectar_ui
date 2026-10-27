@@ -154,11 +154,16 @@ func (s *textFieldState) build(ctx w.BuildContext) w.Widget {
 	if tf.Hint != "" && !hasText && (t >= 1 || tf.Label == "") && (s.focused || tf.Label == "") {
 		hint = w.IgnorePointer{Ignoring: true, Child: w.Text{Text: tf.Hint, Style: pickTC(st.HintStyle, th.Text.BodyLarge, sc.OnSurfaceVariant), MaxLines: 1}}
 	}
-	top := float32(16)
+	// The text line is centered in the 56px field (16 above and below a
+	// 24px line), except in a filled field with a label, where the label
+	// sits in the upper 24px (M3: 24 above, 8 below). The bottom used to be
+	// 8 in every case, so outlined and label-less fields showed their text
+	// 4px low.
+	top, bottom := float32(16), float32(16)
 	if tf.Label != "" && !tf.Outlined {
-		top = 24
+		top, bottom = 24, 8
 	}
-	stackKids := []w.Widget{w.Padding{Padding: geom.InsetsLTRB(0, top, 0, 8), Child: editArea}}
+	stackKids := []w.Widget{w.Padding{Padding: geom.InsetsLTRB(0, top, 0, bottom), Child: editArea}}
 	if hint != nil {
 		stackKids = append(stackKids, w.Positioned{Left: w.At(0), Top: w.At(top), Child: hint})
 	}
@@ -171,9 +176,10 @@ func (s *textFieldState) build(ctx w.BuildContext) w.Widget {
 		y := widgetsLerp(16, 8, t)
 		x := float32(0)
 		if tf.Outlined {
-			// The content stack starts 4px below the field top; the floated
-			// label sits centered on the border line.
-			y = widgetsLerp(14, -11.5, t)
+			// The content stack starts at the field top: resting, the label
+			// is centered like the text (18 + 20/2 = 28); floated, it sits
+			// centered on the border line (-7.5 + 15/2 = 0).
+			y = widgetsLerp(18, -7.5, t)
 			// With a leading icon the resting label sits after the icon, but
 			// the floated one moves to the border start (16px from the edge,
 			// inside the notch), sliding over the icon (M3).

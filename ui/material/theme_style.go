@@ -31,6 +31,26 @@ import (
 //	t := material.ThemeOf(ctx)
 //	t.Card.Radius = material.Dp(4)
 //	return material.ThemeScope{Theme: t, Child: panel}
+//
+// CopyWith (Flutter's copyWith) does the same in one expression, on Theme
+// and on every component theme, ButtonStyle, ColorScheme and TextTheme:
+// the fields set in its argument replace the receiver's, the rest stay.
+//
+//	material.Card{Style: material.ThemeOf(ctx).Card.CopyWith(material.CardTheme{
+//	    Color: someColor, Radius: material.Dp(16),
+//	}), Child: body}
+//
+//	t := material.ThemeOf(ctx).CopyWith(material.Theme{
+//	    Card:         material.CardTheme{Color: someColor},
+//	    FilledButton: material.ButtonStyle{Radius: material.Dp(8)},
+//	})
+//
+// Nested themes merge field by field, so the second form keeps every other
+// Card field. As everywhere in themes, an unset value can't be written
+// with CopyWith (a zero color, or false for a plain bool such as
+// ColorScheme.Dark); assign the field on a copy for those.
+//
+//go:generate go run gen_copywith.go
 
 // Transparent is an explicit "no color" for theme and style fields, where
 // the zero geom.Color means "use the default". It paints nothing.

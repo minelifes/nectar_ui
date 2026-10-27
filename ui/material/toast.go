@@ -308,7 +308,10 @@ func ShowTaskToast(ctx w.BuildContext, t *tasks.Task) *ToastHandle {
 		return Toast{Title: t.Title(), Message: t.Status(), Kind: ToastPlain, Progress: max(p, 0.001), Busy: p < 0,
 			Actions: []ToastAction{{Label: "Cancel", OnPressed: t.Cancel}}}
 	}
-	h := ShowToast(ctx, view())
+	// Subscribe before reading the task for the first toast: a change the
+	// task's goroutine makes in between would otherwise be missed. Updates
+	// are posted to the UI thread, so they run after h is set below.
+	var h *ToastHandle
 	var mu sync.Mutex
 	pending := false
 	var cancel func()
@@ -333,5 +336,6 @@ func ShowTaskToast(ctx w.BuildContext, t *tasks.Task) *ToastHandle {
 			}
 		})
 	})
+	h = ShowToast(ctx, view())
 	return h
 }

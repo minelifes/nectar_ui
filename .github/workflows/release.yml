@@ -1,0 +1,113 @@
+# Every push to main: test, then tag the next patch version (v1.2.3 → v1.2.4)
+# and publish a GitHub release with the nectar CLI binaries attached.
+#
+# - Put "#minor" or "#major" in the head commit message to bump that part
+#   instead (v1.2.3 → v1.3.0 / v2.0.0).
+# - Put "[skip release]" in it to push without releasing.
+# - A commit that already has a version tag isn't released again.
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  test:
+    if: ${{ !contains(github.event.head_commit.message, '[skip release]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Vet
+        run: go vet ./...
+        env:
+          CGO_ENABLED: "0"
+      - name: Test
+        run: go test ./...
+        env:
+          CGO_ENABLED: "0"
+
+  release:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # all tags
+
+      - name: Next version
+        id: version
+        env:
+          MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          if git tag --points-at HEAD | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "HEAD is already $(git tag --points-at HEAD | head -1); nothing to release"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          last=$(git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+          last=${last:-v0.0.0}
+          IFS=. read -r major minor patch <<< "${last#v}"
+          case "$MESSAGE" in
+            *"#major"*) major=$((major + 1)); minor=0; patch=0 ;;
+            *"#minor"*) minor=$((minor + 1)); patch=0 ;;
+            *)          patch=$((patch + 1)) ;;
+          esac
+          next="v$major.$minor.$patch"
+          echo "$last → $next"
+          echo "last=$last" >> "$GITHUB_OUTPUT"
+          echo "next=$next" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-go@v5
+        if: steps.version.outputs.skip != 'true'
+        with:
+          go-version-file: go.mod
+
+      - name: Build nectar CLI
+        if: steps.version.outputs.skip != 'true'
+        env:
+          CGO_ENABLED: "0"
+          VERSION: ${{ steps.version.outputs.next }}
+        run: |
+          mkdir -p dist
+          for target in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64 windows/arm64; do
+            os=${target%/*}; arch=${target#*/}
+            ext=""; [ "$os" = windows ] && ext=".exe"
+            out="nectar${ext}"
+            GOOS=$os GOARCH=$arch go build -trimpath -ldflags "-s -w" -o "dist/$out" ./cmd/nectar
+            name="nectar_${VERSION}_${os}_${arch}"
+            if [ "$os" = windows ]; then
+              (cd dist && zip -q "$name.zip" "$out")
+            else
+              tar -C dist -czf "dist/$name.tar.gz" "$out"
+            fi
+            rm "dist/$out"
+          done
+          (cd dist && sha256sum * > checksums.txt)
+          ls -l dist
+
+      - name: Tag and release
+        if: steps.version.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEXT: ${{ steps.version.outputs.next }}
+          LAST: ${{ steps.version.outputs.last }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$NEXT" -m "$NEXT"
+          git push origin "$NEXT"
+          args=(--title "$NEXT" --generate-notes --verify-tag)
+          if [ "$LAST" != "v0.0.0" ]; then args+=(--notes-start-tag "$LAST"); fi
+          gh release create "$NEXT" dist/* "${args[@]}"

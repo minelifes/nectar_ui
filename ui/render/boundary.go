@@ -61,10 +61,15 @@ func (r *RenderRepaintBoundary) Stats() (hits, misses int) { return r.hits, r.mi
 // replay appends recorded commands shifted by delta, under the current
 // clip and opacity.
 func (c *Canvas) replay(cmds []Command, delta geom.Offset) {
-	clip, alpha := c.Clip(), c.alpha()
+	clip, round, alpha := c.Clip(), c.round(), c.alpha()
 	for _, cmd := range cmds {
 		cmd.Rect = cmd.Rect.Translate(delta)
 		cmd.Clip = cmd.Clip.Translate(delta).Intersect(clip)
+		if cmd.Round.IsZero() {
+			cmd.Round = round
+		} else {
+			cmd.Round.Rect = cmd.Round.Rect.Translate(delta)
+		}
 		cmd.Center = cmd.Center.Add(delta)
 		cmd.Color.A *= alpha
 		if cmd.Color.A <= 0 || cmd.Clip.Empty() {

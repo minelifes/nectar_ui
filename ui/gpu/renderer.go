@@ -25,7 +25,7 @@ import (
 const AtlasSize = 1024
 
 const (
-	floatsPerVertex = 18 // pos2 uv2 color4 local2 params4 extra4
+	floatsPerVertex = 23 // pos2 uv2 color4 local2 params4 extra4 round4 roundR1
 	vertexStride    = floatsPerVertex * 4
 	uniformSize     = 16
 )
@@ -64,6 +64,7 @@ type Renderer struct {
 
 	scale      float32
 	curImage   *wgpu.BindGroup
+	curRound   [5]float32 // rounded clip of the command being built (physical px)
 	fbW, fbH   uint32
 	whiteU     float32
 	whiteV     float32
@@ -137,6 +138,8 @@ func (r *Renderer) init() error {
 					{Format: gputypes.VertexFormatFloat32x2, Offset: 32, ShaderLocation: 3}, // local
 					{Format: gputypes.VertexFormatFloat32x4, Offset: 40, ShaderLocation: 4}, // params
 					{Format: gputypes.VertexFormatFloat32x4, Offset: 56, ShaderLocation: 5}, // extra
+					{Format: gputypes.VertexFormatFloat32x4, Offset: 72, ShaderLocation: 6}, // rounded clip box (physical px)
+					{Format: gputypes.VertexFormatFloat32, Offset: 88, ShaderLocation: 7},   // rounded clip radius (0 = none)
 				},
 			}},
 		},
@@ -364,6 +367,7 @@ func (r *Renderer) build(cmds []render.Command, strict bool) bool {
 	for i := range cmds {
 		c := &cmds[i]
 		r.setScissor(c.Clip)
+		r.setRound(c.Round)
 		switch c.Kind {
 		case render.CmdRect:
 			r.rect(c.Rect, c.Radius, c.Color)
@@ -394,6 +398,16 @@ func (r *Renderer) build(cmds []render.Command, strict bool) bool {
 		b.count = uint32(len(r.indices)) - b.first
 	}
 	return true
+}
+
+// setRound sets the rounded clip the following quads are cut to.
+func (r *Renderer) setRound(rc render.RoundClip) {
+	if rc.IsZero() {
+		r.curRound = [5]float32{}
+		return
+	}
+	s := r.scale
+	r.curRound = [5]float32{rc.Rect.X * s, rc.Rect.Y * s, rc.Rect.Right() * s, rc.Rect.Bottom() * s, rc.Radius * s}
 }
 
 func (r *Renderer) setScissor(clip geom.Rect) {
@@ -446,8 +460,10 @@ func clampU(v float64, hi uint32) uint32 {
 func (r *Renderer) quad(x0, y0, x1, y1, u0, v0, u1, v1 float32, c geom.Color, local, params, extra [4]float32) {
 	base := uint32(len(r.verts) / floatsPerVertex)
 	corner := func(x, y, u, v, lx, ly float32) {
+		rc := &r.curRound
 		r.verts = append(r.verts, x, y, u, v, c.R, c.G, c.B, c.A, lx, ly,
-			params[0], params[1], params[2], params[3], extra[0], extra[1], extra[2], extra[3])
+			params[0], params[1], params[2], params[3], extra[0], extra[1], extra[2], extra[3],
+			rc[0], rc[1], rc[2], rc[3], rc[4])
 	}
 	corner(x0, y0, u0, v0, local[0], local[1])
 	corner(x1, y0, u1, v0, local[2], local[1])

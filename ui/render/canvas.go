@@ -22,8 +22,12 @@ const (
 
 // Command is one entry of the display list. Coordinates are logical pixels.
 type Command struct {
-	Kind   CommandKind
-	Clip   geom.Rect // clip rect active when the command was recorded
+	Kind CommandKind
+	Clip geom.Rect // clip rect active when the command was recorded
+	// Round is the rounded clip active when the command was recorded
+	// (PushRoundClip); zero Radius = none. Clip already contains its
+	// bounds, so a renderer that only scissors still clips to the box.
+	Round  RoundClip
 	Rect   geom.Rect
 	Color  geom.Color
 	Radius float32         // corner radius for CmdRect / CmdShadow / CmdStroke
@@ -38,11 +42,21 @@ type Command struct {
 	Src    geom.Rect       // CmdImage: source rect in image pixels
 }
 
+// RoundClip is a rounded-rectangle clip: Rect with corners of Radius.
+type RoundClip struct {
+	Rect   geom.Rect
+	Radius float32
+}
+
+// IsZero reports whether there's no rounded clip.
+func (r RoundClip) IsZero() bool { return r.Radius <= 0 }
+
 // Canvas records drawing commands. It's a retained display list, not an
 // immediate-mode API: the GPU backend consumes Commands once per frame.
 type Canvas struct {
 	Commands []Command
 	clips    []geom.Rect
+	rounds   []RoundClip // parallel to clips: the rounded clip in effect
 	alphas   []float32
 }
 
@@ -50,6 +64,7 @@ type Canvas struct {
 func (c *Canvas) Reset(window geom.Rect) {
 	c.Commands = c.Commands[:0]
 	c.clips = append(c.clips[:0], window)
+	c.rounds = append(c.rounds[:0], RoundClip{})
 	c.alphas = append(c.alphas[:0], 1)
 }
 
@@ -73,6 +88,7 @@ func (c *Canvas) alpha() float32 {
 // add records cmd with the current clip and opacity applied.
 func (c *Canvas) add(cmd Command) {
 	cmd.Clip = c.Clip()
+	cmd.Round = c.round()
 	cmd.Color.A *= c.alpha()
 	if cmd.Color.A <= 0 || cmd.Clip.Empty() {
 		return
@@ -84,13 +100,41 @@ func (c *Canvas) add(cmd Command) {
 func (c *Canvas) Clip() geom.Rect { return c.clips[len(c.clips)-1] }
 
 // PushClip intersects the current clip with r.
-func (c *Canvas) PushClip(r geom.Rect) { c.clips = append(c.clips, c.Clip().Intersect(r)) }
+func (c *Canvas) PushClip(r geom.Rect) {
+	c.clips = append(c.clips, c.Clip().Intersect(r))
+	c.rounds = append(c.rounds, c.round())
+}
+
+// PushRoundClip clips to r with rounded corners of the given radius (anti-
+// aliased by the GPU renderer); radius 0 is PushClip. Rounded clips nest
+// like rect clips, except that only the innermost one rounds corners: an
+// outer rounded clip still clips to its box.
+func (c *Canvas) PushRoundClip(r geom.Rect, radius float32) {
+	radius = min(radius, r.W/2, r.H/2)
+	if radius <= 0 {
+		c.PushClip(r)
+		return
+	}
+	c.clips = append(c.clips, c.Clip().Intersect(r))
+	c.rounds = append(c.rounds, RoundClip{Rect: r, Radius: radius})
+}
 
 // PopClip restores the previous clip.
 func (c *Canvas) PopClip() {
 	if len(c.clips) > 1 {
 		c.clips = c.clips[:len(c.clips)-1]
+		c.rounds = c.rounds[:len(c.rounds)-1]
 	}
+}
+
+// RoundClip returns the rounded clip in effect (zero Radius = none).
+func (c *Canvas) RoundClip() RoundClip { return c.round() }
+
+func (c *Canvas) round() RoundClip {
+	if len(c.rounds) == 0 {
+		return RoundClip{}
+	}
+	return c.rounds[len(c.rounds)-1]
 }
 
 // FillRect fills r with color.

@@ -73,7 +73,9 @@ func commonButton(th Theme, st ButtonStyle, onPressed func(), label string, icon
 	iconSize := pickF(st.IconSize, 18)
 	content := child
 	if content == nil {
-		content = w.Text{Text: label, Style: pickTC(st.TextStyle, th.Text.LabelLarge, fg), MaxLines: 1}
+		// Flexible: in a button narrower than its label (a fixed width, a
+		// tight row), the label shrinks and ends in "…" instead of being cut.
+		content = w.Flexible{Child: w.Text{Text: label, Style: pickTC(st.TextStyle, th.Text.LabelLarge, fg), MaxLines: 1, Ellipsis: true}}
 	}
 	kids := []w.Widget{}
 	if icon != nil {
@@ -323,7 +325,7 @@ func (f FloatingActionButton) Build(ctx w.BuildContext) w.Widget {
 		if f.Icon != nil {
 			kids = append(kids, w.Icon{Icon: f.Icon, Size: pickF(st.IconSize, 24), Color: fg})
 		}
-		kids = append(kids, w.Text{Text: f.Label, Style: pickTC(st.ExtendedTextStyle, th.Text.LabelLarge, fg)})
+		kids = append(kids, w.Flexible{Child: w.Text{Text: f.Label, Style: pickTC(st.ExtendedTextStyle, th.Text.LabelLarge, fg), MaxLines: 1, Ellipsis: true}})
 		child = w.ConstrainedBox{Constraints: geom.Constraints{MinW: 80, MaxW: geom.Inf, MinH: 56, MaxH: 56},
 			Child: w.Padding{Padding: pickE(st.ExtendedPadding, geom.InsetsHV(16, 0)), Child: w.Row{Main: w.MainCenter, Cross: w.CrossCenter, ShrinkMain: true, Spacing: 12, Children: kids}}}
 	} else {

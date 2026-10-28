@@ -27,7 +27,9 @@ type Card struct {
 	Variant CardVariant
 	OnTap   func()
 	Padding geom.EdgeInsets // default none
-	Child   w.Widget
+	// Overflow lets the content paint outside the card (clipped by default).
+	Overflow bool
+	Child    w.Widget
 	// Style overrides Theme.Card.
 	Style CardTheme
 }
@@ -57,10 +59,10 @@ func (c Card) Build(ctx w.BuildContext) w.Widget {
 	}
 	var card w.Widget
 	if c.OnTap == nil {
-		card = Surface{Color: bg, Radius: radius, BorderColor: border, BorderWidth: bw, Elevation: elev, ShadowColor: st.ShadowColor, Child: child}
+		card = Surface{Color: bg, Radius: radius, BorderColor: border, BorderWidth: bw, Elevation: elev, ShadowColor: st.ShadowColor, Overflow: c.Overflow, Child: child}
 	} else {
 		card = InkSurface{OnTap: c.OnTap, Color: bg, ContentColor: pick(st.OverlayColor, s.OnSurface), BorderColor: border, BorderWidth: bw,
-			Radius: radius, Elevation: elev, ShadowColor: st.ShadowColor, RaiseOnHover: c.Variant == CardElevated && elev > 0, Child: child}
+			Radius: radius, Elevation: elev, ShadowColor: st.ShadowColor, RaiseOnHover: c.Variant == CardElevated && elev > 0, Overflow: c.Overflow, Child: child}
 	}
 	if st.Margin != nil {
 		card = w.Padding{Padding: *st.Margin, Child: card}

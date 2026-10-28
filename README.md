@@ -195,6 +195,16 @@ func (s *clockState) OnDestroy() { /* anything Own can't express */ }
 
 `Own` takes a `func()` / `func() error` (cancel funcs, `context.CancelFunc`), or anything with `Close`, `Dispose`, `Cancel`, `Stop` or `Unsubscribe`. Owning something after the state was destroyed releases it immediately, so late callbacks can't leak. `s.Listen(l, fn)` subscribes to any `Listenable` (view models, `mvvm` properties, services) and calls `fn` on the UI goroutine. Unlike `widgets.Listen(ctx, l)` in `Build`, it doesn't rebuild by itself.
 
+**Clipping:** `widgets.Clip` cuts its child to its own bounds. Anything painted outside is hidden, and taps outside the shape don't reach the child. Corners are anti-aliased on the GPU:
+
+```go
+widgets.Clip{Child: content}                        // rectangle (= ClipRect)
+widgets.Clip{Radius: 16, Child: photo}              // rounded corners (= ClipRRect{Radius: 16})
+widgets.Clip{Oval: true, Child: avatar}             // circle for a square child, pill otherwise (= ClipOval)
+```
+
+Clips nest. The visible area is the intersection of all of them, but only the innermost rounded clip rounds corners; an outer one still clips to its box. Custom render objects can do the same with `Canvas.PushRoundClip(rect, radius)` / `PopClip`.
+
 Custom render object: write a struct embedding `render.Box` (plus `render.SingleChild` / `render.MultiChild` if it has children). Implement `PerformLayout` and `Paint`, plus `VisitChildren` for leaves. Then add a widget that implements `CreateRenderObject` / `UpdateRenderObject` (+ `ChildWidget()` / `ChildWidgets()`). `render.RenderParagraph` and `widgets.paragraph` are the smallest complete example.
 
 ## MVVM: view models and bindings (`ui/mvvm`)
@@ -460,6 +470,7 @@ app.Run(material.App{Theme: material.NewTheme(geom.Hex(0x6750A4), false), Dark: 
 - **Navigation:** `AppBar` (small, center, medium, large, with auto back), `NavigationBar`, `NavigationRail`, `NavigationDrawer`, `TabBar` / `TabBarView`, `BottomAppBar`, `Scaffold` (with drawer), `Push` / `Pop`.
 - **Data:** `DataTable` (sorting, row selection), `Stepper`.
 - **Building blocks for your own components:** `Surface` (a painted container) and `InkSurface`, which adds state layers, a ripple, a focus ring, keyboard activation and elevation on hover.
+- **Clipping:** containers keep their content inside. `Surface` and `InkSurface` (and so every card, button, chip, dialog and sheet built on them) and `widgets.Container` with a `Color` or `Border` clip their child to their bounds, so a row too wide for a card is cut at the card's edge. Text fields fit a long hint or label to the field and end it with "…". Set `Overflow: true` on `Card`, `Surface`, `InkSurface` or `Container` to let the child paint outside, e.g. for a badge that hangs over the corner. The clip follows the component's rounded corners, so an image at the top of a card fills its corners exactly.
 
 `CGO_ENABLED=0 go run ./examples/material` opens the gallery with every component, a dark-mode toggle and a seed picker.
 

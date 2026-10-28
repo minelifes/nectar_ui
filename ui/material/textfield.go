@@ -169,7 +169,7 @@ func (s *textFieldState) build(ctx w.BuildContext) w.Widget {
 	// Hint shows when the label has floated (or there's no label) and empty.
 	var hint w.Widget
 	if tf.Hint != "" && !hasText && (t >= 1 || tf.Label == "") && (s.focused || tf.Label == "") {
-		hint = w.IgnorePointer{Ignoring: true, Child: w.Text{Text: tf.Hint, Style: pickTC(st.HintStyle, th.Text.BodyLarge, sc.OnSurfaceVariant), MaxLines: 1}}
+		hint = w.IgnorePointer{Ignoring: true, Child: w.Text{Text: tf.Hint, Style: pickTC(st.HintStyle, th.Text.BodyLarge, sc.OnSurfaceVariant), MaxLines: 1, Ellipsis: true}}
 	}
 	// The text line is centered in the 56px field (16 above and below a
 	// 24px line), except in a filled field with a label, where the label
@@ -187,7 +187,9 @@ func (s *textFieldState) build(ctx w.BuildContext) w.Widget {
 	top, bottom := pad.Top, pad.Bottom
 	stackKids := []w.Widget{w.Padding{Padding: geom.InsetsLTRB(0, top, 0, bottom), Child: editArea}}
 	if hint != nil {
-		stackKids = append(stackKids, w.Positioned{Left: w.At(0), Top: w.At(top), Child: hint})
+		// Left and right pin it to the text area: a long hint ends in "…"
+		// instead of running past the field.
+		stackKids = append(stackKids, w.Positioned{Left: w.At(0), Right: w.At(0), Top: w.At(top), Child: hint})
 	}
 	// textX is where the text starts from the field edge: the content
 	// padding, after the icon (12 padding + 24) when there is one.
@@ -216,8 +218,14 @@ func (s *textFieldState) build(ctx w.BuildContext) w.Widget {
 		ls := pickT(st.LabelStyle, Styled(th.Text.BodyLarge, labelColor))
 		ls.Color = labelColor
 		ls.Size, ls.LineHeight = size, 1.25
-		stackKids = append(stackKids, w.Positioned{Left: w.At(x), Top: w.At(y),
-			Child: w.IgnorePointer{Ignoring: true, Child: w.Text{Text: tf.Label, Style: ls, MaxLines: 1}}})
+		// Bounded on the right too, so a long label ends in "…" inside the
+		// field (a floated outlined label stays inside the border notch).
+		right := float32(0)
+		if tf.Outlined {
+			right = max(0, x) // the floated label starts left of the text
+		}
+		stackKids = append(stackKids, w.Positioned{Left: w.At(x), Right: w.At(right), Top: w.At(y),
+			Child: w.IgnorePointer{Ignoring: true, Child: w.Text{Text: tf.Label, Style: ls, MaxLines: 1, Ellipsis: true}}})
 	}
 	row := []w.Widget{}
 	iconCol := pick(st.IconColor, sc.OnSurfaceVariant)
@@ -288,7 +296,9 @@ func (s *textFieldState) build(ctx w.BuildContext) w.Widget {
 					// Notch: erase the border behind the floated label (the
 					// label itself is painted afterwards, on top).
 					if labelW > 0 && s.float.Value() > 0 {
-						nw := labelW * s.float.Value()
+						// A long label is cut with "…" inside the field, so the
+						// notch never runs past the corner.
+						nw := min(labelW, max(0, size.W-24)) * s.float.Value()
 						c.FillRect(geom.Rect{X: o.X + 12, Y: o.Y - bw, W: nw, H: bw}, pageColor)
 						c.FillRect(geom.Rect{X: o.X + 12, Y: o.Y, W: nw, H: bw}, pageColor)
 						if innerColor != pageColor {

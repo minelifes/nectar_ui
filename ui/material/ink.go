@@ -36,12 +36,25 @@ type Surface struct {
 	BorderWidth float32
 	Elevation   int
 	ShadowColor geom.Color // default Scheme.Shadow
-	Child       w.Widget
+	// Overflow lets the child paint outside the surface. By default it's
+	// clipped to the surface's rounded shape (long text, an image that
+	// fills the card, corners included).
+	Overflow bool
+	Child    w.Widget
+}
+
+// clipChild clips child to the surface's rounded shape unless overflow is
+// allowed.
+func clipChild(child w.Widget, overflow bool, radius float32) w.Widget {
+	if child == nil || overflow {
+		return child
+	}
+	return w.Clip{Radius: radius, Child: child}
 }
 
 func (s Surface) Build(ctx w.BuildContext) w.Widget {
 	shadow := pick(s.ShadowColor, ThemeOf(ctx).Scheme.Shadow)
-	return w.CustomPaint{Child: s.Child, Painter: func(c *render.Canvas, o geom.Offset, size geom.Size) {
+	return w.CustomPaint{Child: clipChild(s.Child, s.Overflow, s.Radius), Painter: func(c *render.Canvas, o geom.Offset, size geom.Size) {
 		r := geom.RectFrom(o, size)
 		paintShadow(c, r, s.Radius, float32(s.Elevation), shadow)
 		c.FillRoundRect(r, s.Radius, s.Color)
@@ -68,7 +81,10 @@ type InkSurface struct {
 	ShadowColor  geom.Color // default Scheme.Shadow
 	Disabled     bool       // no interaction (OnTap == nil also disables)
 	NoFocus      bool       // exclude from keyboard focus
-	Child        w.Widget
+	// Overflow lets the child paint outside the surface (clipped to its
+	// bounds by default).
+	Overflow bool
+	Child    w.Widget
 }
 
 func (InkSurface) CreateState() w.State { return &inkState{} }
@@ -198,7 +214,7 @@ func (s *inkState) Build(ctx w.BuildContext) w.Widget {
 		}
 	}
 
-	var child w.Widget = w.CustomPaint{Painter: painter, Child: ww.Child}
+	var child w.Widget = w.CustomPaint{Painter: painter, Child: clipChild(ww.Child, ww.Overflow, ww.Radius)}
 	if !enabled {
 		return child
 	}

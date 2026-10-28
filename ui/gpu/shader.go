@@ -8,6 +8,11 @@ package gpu
 //   - mode 6: image. Samples the group-1 texture (premultiplied) clipped to
 //     the rounded rect.
 //
+// Every quad also carries the rounded clip it was recorded under (a box in
+// framebuffer pixels and a corner radius; radius 0 = none): the fragment's
+// coverage is multiplied by the clip's anti-aliased SDF, on top of the
+// scissor rect that already cuts to the box.
+//
 // Output is premultiplied alpha (blend: One, OneMinusSrcAlpha).
 const shaderWGSL = `
 struct Uniforms {
@@ -29,6 +34,8 @@ struct VertexIn {
     @location(3) local: vec2<f32>,
     @location(4) params: vec4<f32>,
     @location(5) extra: vec4<f32>,
+    @location(6) round_box: vec4<f32>,
+    @location(7) round_r: f32,
 };
 
 struct VertexOut {
@@ -38,6 +45,9 @@ struct VertexOut {
     @location(2) local: vec2<f32>,
     @location(3) params: vec4<f32>,
     @location(4) extra: vec4<f32>,
+    @location(5) round_box: vec4<f32>,
+    @location(6) round_r: f32,
+    @location(7) px: vec2<f32>, // framebuffer position, physical pixels
 };
 
 @vertex
@@ -50,6 +60,9 @@ fn vs_main(in: VertexIn) -> VertexOut {
     out.local = in.local;
     out.params = in.params;
     out.extra = in.extra;
+    out.round_box = in.round_box;
+    out.round_r = in.round_r;
+    out.px = in.pos;
     return out;
 }
 
@@ -121,6 +134,15 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     }
     if (u.linear_out > 0.5) {
         rgb = srgb_to_linear(rgb);
+    }
+    if (in.round_r > 0.0) {
+        // Rounded clip: SDF of the clip box at this pixel.
+        let c = (in.round_box.xy + in.round_box.zw) * 0.5;
+        let h = (in.round_box.zw - in.round_box.xy) * 0.5;
+        let rr = in.round_r;
+        let q = abs(in.px - c) - h + vec2<f32>(rr, rr);
+        let dc = length(max(q, vec2<f32>(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - rr;
+        coverage = coverage * clamp(0.5 - dc, 0.0, 1.0);
     }
     let a = alpha * coverage;
     return vec4<f32>(rgb * a, a);

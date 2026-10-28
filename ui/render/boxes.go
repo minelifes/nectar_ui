@@ -231,18 +231,46 @@ func (r *RenderAlign) Paint(ctx *PaintContext, o geom.Offset) { ctx.PaintChild(r
 
 // --- RenderClipRect --------------------------------------------------------
 
-// RenderClipRect clips its child to its own bounds.
+// RenderClipRect clips its child to its own bounds, with rounded corners
+// when Radius > 0 or Oval (a circle for a square box, a pill otherwise).
+// Pointer events outside the clipped shape don't reach the child.
 type RenderClipRect struct {
 	Box
 	SingleChild
+	Radius float32
+	Oval   bool
 }
 
 func (r *RenderClipRect) PerformLayout(c geom.Constraints) geom.Size { return layoutProxy(r.child, c) }
 
+// radius is the corner radius for the current size.
+func (r *RenderClipRect) radius() float32 {
+	if r.Oval {
+		return min(r.size.W, r.size.H) / 2
+	}
+	return min(r.Radius, r.size.W/2, r.size.H/2)
+}
+
 func (r *RenderClipRect) Paint(ctx *PaintContext, o geom.Offset) {
-	ctx.Canvas.PushClip(geom.RectFrom(o, r.size))
+	ctx.Canvas.PushRoundClip(geom.RectFrom(o, r.size), r.radius())
 	ctx.PaintChild(r.child, o)
 	ctx.Canvas.PopClip()
+}
+
+// HitShape reports whether local point p is inside the clipped shape.
+func (r *RenderClipRect) HitShape(p geom.Offset) bool {
+	if p.X < 0 || p.Y < 0 || p.X > r.size.W || p.Y > r.size.H {
+		return false
+	}
+	rad := r.radius()
+	if rad <= 0 {
+		return true
+	}
+	// Distance from the nearest corner circle's center, in the corners.
+	cx := min(max(p.X, rad), r.size.W-rad)
+	cy := min(max(p.Y, rad), r.size.H-rad)
+	dx, dy := p.X-cx, p.Y-cy
+	return dx*dx+dy*dy <= rad*rad
 }
 
 // --- RenderFlexible --------------------------------------------------------

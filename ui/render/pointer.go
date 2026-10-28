@@ -115,6 +115,11 @@ func HitTestAt(root RenderObject, pos geom.Offset) []HitEntry {
 	return hitTest(root, geom.Offset{}, pos, nil)
 }
 
+// HitShaper is implemented by render objects whose hittable area is
+// smaller than their box (a rounded clip): points in the box but outside
+// the shape miss the node and its subtree.
+type HitShaper interface{ HitShape(local geom.Offset) bool }
+
 // PointerIgnorer is implemented by render objects that hide their subtree
 // from hit testing (IgnorePointer).
 type PointerIgnorer interface{ IgnoresPointer() bool }
@@ -127,6 +132,9 @@ func hitTest(ro RenderObject, parentOrigin, pos geom.Offset, out []HitEntry) []H
 	origin := parentOrigin.Add(b.offset)
 	local := pos.Sub(origin)
 	if !geom.RectFrom(geom.Offset{}, b.size).Contains(local) {
+		return out
+	}
+	if hs, ok := ro.(HitShaper); ok && !hs.HitShape(local) {
 		return out
 	}
 	n := len(out)

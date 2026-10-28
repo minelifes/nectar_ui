@@ -215,16 +215,74 @@ type Center struct{ Child Widget }
 
 func (w Center) Build(BuildContext) Widget { return Align{Alignment: geom.Center, Child: w.Child} }
 
-// ClipRect clips its child to its bounds.
+// Clip clips its child to its own bounds: anything the child paints
+// outside is cut off, and pointer events outside the shape don't reach it.
+//
+//	widgets.Clip{Child: content}                          // rectangle
+//	widgets.Clip{Radius: 12, Child: widgets.Image{...}}   // rounded corners
+//	widgets.Clip{Oval: true, Child: avatar}               // circle / pill
+//
+// Corners are anti-aliased. Rounded clips nest like rectangles, except
+// that only the innermost one rounds corners (an outer rounded clip still
+// clips to its box). ClipRect, ClipRRect and ClipOval are shorthands.
+type Clip struct {
+	Radius float32 // corner radius; 0 = square corners
+	Oval   bool    // a circle for a square child, a pill otherwise (overrides Radius)
+	Child  Widget
+}
+
+func (w Clip) ChildWidget() Widget { return w.Child }
+func (w Clip) CreateRenderObject(BuildContext) render.RenderObject {
+	return &render.RenderClipRect{Radius: w.Radius, Oval: w.Oval}
+}
+func (Clip) MarksOwnPaint() {}
+
+func (w Clip) UpdateRenderObject(_ BuildContext, ro render.RenderObject) {
+	r := ro.(*render.RenderClipRect)
+	if r.Radius != w.Radius || r.Oval != w.Oval {
+		r.Radius, r.Oval = w.Radius, w.Oval
+		render.MarkNeedsPaint(r)
+	}
+}
+
+// ClipRect clips its child to its bounds (Clip with square corners).
 type ClipRect struct{ Child Widget }
 
 func (w ClipRect) ChildWidget() Widget { return w.Child }
-func (w ClipRect) CreateRenderObject(BuildContext) render.RenderObject {
-	return &render.RenderClipRect{}
+func (w ClipRect) CreateRenderObject(ctx BuildContext) render.RenderObject {
+	return Clip{}.CreateRenderObject(ctx)
 }
 func (ClipRect) MarksOwnPaint() {}
+func (w ClipRect) UpdateRenderObject(ctx BuildContext, ro render.RenderObject) {
+	Clip{}.UpdateRenderObject(ctx, ro)
+}
 
-func (w ClipRect) UpdateRenderObject(BuildContext, render.RenderObject) {}
+// ClipRRect clips its child to its bounds with rounded corners.
+type ClipRRect struct {
+	Radius float32
+	Child  Widget
+}
+
+func (w ClipRRect) ChildWidget() Widget { return w.Child }
+func (w ClipRRect) CreateRenderObject(ctx BuildContext) render.RenderObject {
+	return Clip{Radius: w.Radius}.CreateRenderObject(ctx)
+}
+func (ClipRRect) MarksOwnPaint() {}
+func (w ClipRRect) UpdateRenderObject(ctx BuildContext, ro render.RenderObject) {
+	Clip{Radius: w.Radius}.UpdateRenderObject(ctx, ro)
+}
+
+// ClipOval clips its child to a circle (square child) or a pill.
+type ClipOval struct{ Child Widget }
+
+func (w ClipOval) ChildWidget() Widget { return w.Child }
+func (w ClipOval) CreateRenderObject(ctx BuildContext) render.RenderObject {
+	return Clip{Oval: true}.CreateRenderObject(ctx)
+}
+func (ClipOval) MarksOwnPaint() {}
+func (w ClipOval) UpdateRenderObject(ctx BuildContext, ro render.RenderObject) {
+	Clip{Oval: true}.UpdateRenderObject(ctx, ro)
+}
 
 // ---------------------------------------------------------------------------
 // Container: the convenience widget composed from the primitives above.
@@ -238,7 +296,10 @@ type Container struct {
 	Color     geom.Color
 	Border    *geom.Border
 	Alignment *geom.Alignment // nil = child keeps its own size
-	Child     Widget
+	// Overflow lets the child paint outside a Container that has a Color or
+	// Border. By default such a container clips its content to its box.
+	Overflow bool
+	Child    Widget
 }
 
 func (w Container) Build(BuildContext) Widget {
@@ -250,6 +311,9 @@ func (w Container) Build(BuildContext) Widget {
 		child = Padding{Padding: w.Padding, Child: child}
 	}
 	if w.Color.A > 0 || w.Border != nil || child == nil {
+		if child != nil && !w.Overflow {
+			child = ClipRect{Child: child}
+		}
 		child = DecoratedBox{Color: w.Color, Border: w.Border, Child: child}
 	}
 	if w.Width > 0 || w.Height > 0 {

@@ -126,6 +126,17 @@ Frames are on demand: `SetState`, `Post` and `MarkNeedsLayout/Paint` call `Reque
 ## Text
 
 - **Fonts:** `golang.org/x/image/font/sfnt` parses TTF/OTF. The Go fonts are embedded, so there's no setup (Latin, Cyrillic, Greek).
+- **Font weight:** `text.Style{Weight: text.Bold}` (or `text.W100` … `text.W900`, `Thin` … `Black`; 0 inherits). With the built-in fonts, Normal, Medium and Bold are real Go font files, and other weights use the closest. Theme styles work too: `th.Text.BodyLarge.CopyWith(text.Style{Weight: text.SemiBold})`. For your own font, register one file per weight in a family and use its font:
+
+  ```go
+  comfortaa := text.NewFamily("Comfortaa").
+      Add(text.Light, mustFont("fonts/Comfortaa-Light.ttf")).
+      Add(text.Normal, mustFont("fonts/Comfortaa-Regular.ttf")).
+      Add(text.Bold, mustFont("fonts/Comfortaa-Bold.ttf"))
+  style := text.Style{Font: comfortaa.Font(), Weight: text.Bold}
+  ```
+
+  The closest face is chosen the way CSS does it. When the font has nothing bold enough (a single font file, or 900 in a family that stops at 700), the text gets a **synthetic bold**: glyphs are thickened and spaced to match, so `Weight: text.Bold` always looks bold. Lighter weights can't be synthesized and use the closest face. Spans in `RichText` can each have their own weight.
 - **Shaping:** Latin, Cyrillic and Greek in fonts without ligature tables take the fast path (cmap lookup plus kerning). Everything else goes through `go-text/typesetting`, a pure-Go HarfBuzz port:
   - Complex scripts: Arabic joining forms, Indic conjuncts and reordering, combining marks, and so on.
   - Ligatures ("fi", "ffi", programming-font arrows) in fonts that have them. `Style.NoLigatures` turns them off, e.g. for code where every character should stay visible.

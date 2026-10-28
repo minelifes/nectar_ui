@@ -275,7 +275,7 @@ func appendShaped(out []cluster, res shaping.Output, rs []rune, byteAt []int, it
 			} else {
 				c.more = append(c.more, clusterGlyph{id: GlyphID(g.GlyphID), x: gx, y: gy})
 			}
-			pen += px(g.XAdvance)
+			pen += px(g.XAdvance) + it.font.embolden*st.Size
 		}
 		c.adv = pen + st.LetterSpacing*float32(c.runes)
 		out = append(out, c)

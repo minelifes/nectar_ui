@@ -41,6 +41,11 @@ type Style struct {
 	// NoLigatures turns off the font's standard ligatures ("fi", "->" in
 	// coding fonts); contextual forms that scripts need stay on.
 	NoLigatures bool
+	// Weight picks the face of Font's family (text.Bold, text.W600, …);
+	// 0 = inherit, drawn as the font's own weight. Fonts outside a family
+	// (and weights bolder than the family has) get a synthetic bold. See
+	// Family.
+	Weight FontWeight
 }
 
 // Resolved fills in defaults.
@@ -48,6 +53,7 @@ func (s Style) Resolved() Style {
 	if s.Font == nil {
 		s.Font = DefaultFont()
 	}
+	s.Font = s.Font.WithWeight(s.Weight)
 	if s.Size <= 0 {
 		s.Size = DefaultSize
 	}
@@ -97,6 +103,9 @@ func (s Style) Inherit(base Style) Style {
 	}
 	if !s.NoLigatures {
 		s.NoLigatures = base.NoLigatures
+	}
+	if s.Weight == 0 {
+		s.Weight = base.Weight
 	}
 	return s
 }
@@ -248,6 +257,7 @@ func LayoutSpans(spans []Span, base Style, opt Options) *Paragraph {
 	rich := false
 	for _, sp := range spans {
 		st := sp.Style.Inherit(base)
+		st.Font = st.Font.WithWeight(st.Weight)
 		st.LineHeight, st.TabSize = base.LineHeight, base.TabSize
 		if st.Color != base.Color {
 			rich = true

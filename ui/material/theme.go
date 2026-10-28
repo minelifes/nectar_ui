@@ -12,8 +12,6 @@ import (
 	"reflect"
 	"sync"
 
-	"golang.org/x/image/font/gofont/gomedium"
-
 	"github.com/minelifes/nectar_ui/ui/geom"
 	w "github.com/minelifes/nectar_ui/ui/widgets"
 	"github.com/minelifes/nectar_ui/ui/widgets/text"
@@ -93,22 +91,9 @@ func SchemeFromPalettes(p, s, t, n, nv, e TonalPalette, dark bool) ColorScheme {
 // ---------------------------------------------------------------------------
 // Typography
 
-var (
-	fontOnce   sync.Once
-	fontMedium *text.Font
-)
-
-// MediumFont returns the medium-weight (500) font used for titles/labels.
-func MediumFont() *text.Font {
-	fontOnce.Do(func() {
-		f, err := text.ParseFont("Go Medium", gomedium.TTF)
-		if err != nil {
-			f = text.DefaultBoldFont()
-		}
-		fontMedium = f
-	})
-	return fontMedium
-}
+// MediumFont returns the medium-weight (500) font used for titles/labels
+// (text.DefaultMediumFont, part of text.DefaultFamily).
+func MediumFont() *text.Font { return text.DefaultMediumFont() }
 
 // TextTheme is the M3 type scale.
 type TextTheme struct {

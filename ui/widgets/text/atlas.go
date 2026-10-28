@@ -129,7 +129,8 @@ func (a *Atlas) Glyph(f *Font, g GlyphID, sizePx float32, sub uint8) (AtlasGlyph
 	b := segs.Bounds()
 	x0 := int(math.Floor(float64(fx(b.Min.X) + dx)))
 	y0 := int(math.Floor(float64(fx(b.Min.Y))))
-	x1 := int(math.Ceil(float64(fx(b.Max.X) + dx)))
+	bold := f.embolden * sizePx // synthetic bold: extra stroke width, px
+	x1 := int(math.Ceil(float64(fx(b.Max.X) + dx + bold)))
 	y1 := int(math.Ceil(float64(fx(b.Max.Y))))
 	w, h := x1-x0, y1-y0
 	if w <= 0 || h <= 0 {
@@ -142,7 +143,7 @@ func (a *Atlas) Glyph(f *Font, g GlyphID, sizePx float32, sub uint8) (AtlasGlyph
 	if !ok {
 		return AtlasGlyph{}, false
 	}
-	a.rasterize(segs, float32(x0)-dx, float32(y0), w, h)
+	a.rasterize(segs, float32(x0)-dx, float32(y0), w, h, bold)
 	a.blit(ax, ay, w, h)
 
 	e := AtlasGlyph{X: ax, Y: ay, W: w, H: h, OffX: float32(x0), OffY: float32(y0)}
@@ -168,10 +169,36 @@ func (a *Atlas) alloc(w, h int) (x, y int, ok bool) {
 }
 
 // rasterize renders the outline into a.mask; (ox, oy) is subtracted from
-// every point so the bitmap starts at (0,0).
-func (a *Atlas) rasterize(segs sfnt.Segments, ox, oy float32, w, h int) {
+// every point so the bitmap starts at (0,0). bold > 0 thickens it by that
+// many pixels (synthetic bold): the outline is drawn again shifted right in
+// steps of at most a third of a pixel, and the copies merge.
+func (a *Atlas) rasterize(segs sfnt.Segments, ox, oy float32, w, h int, bold float32) {
 	z := a.raster
 	z.Reset(w, h)
+	steps := 0
+	if bold > 0 {
+		steps = int(math.Ceil(float64(bold * 3)))
+	}
+	for k := 0; k <= steps; k++ {
+		shift := float32(0)
+		if steps > 0 {
+			shift = bold * float32(k) / float32(steps)
+		}
+		a.path(segs, ox-shift, oy)
+	}
+	if a.mask == nil || a.mask.Rect.Dx() < w || a.mask.Rect.Dy() < h {
+		a.mask = image.NewAlpha(image.Rect(0, 0, max(w, 64), max(h, 64)))
+	}
+	r := image.Rect(0, 0, w, h)
+	for y := 0; y < h; y++ { // clear only the part we use
+		clear(a.mask.Pix[y*a.mask.Stride : y*a.mask.Stride+w])
+	}
+	z.Draw(a.mask, r, image.Opaque, image.Point{})
+}
+
+// path adds the outline to the rasterizer, offset by -(ox, oy).
+func (a *Atlas) path(segs sfnt.Segments, ox, oy float32) {
+	z := a.raster
 	pt := func(i int, s sfnt.Segment) (float32, float32) {
 		return fx(s.Args[i].X) - ox, fx(s.Args[i].Y) - oy
 	}
@@ -193,14 +220,6 @@ func (a *Atlas) rasterize(segs sfnt.Segments, ox, oy float32, w, h int) {
 		}
 	}
 	z.ClosePath()
-	if a.mask == nil || a.mask.Rect.Dx() < w || a.mask.Rect.Dy() < h {
-		a.mask = image.NewAlpha(image.Rect(0, 0, max(w, 64), max(h, 64)))
-	}
-	r := image.Rect(0, 0, w, h)
-	for y := 0; y < h; y++ { // clear only the part we use
-		clear(a.mask.Pix[y*a.mask.Stride : y*a.mask.Stride+w])
-	}
-	z.Draw(a.mask, r, image.Opaque, image.Point{})
 }
 
 func (a *Atlas) blit(ax, ay, w, h int) {

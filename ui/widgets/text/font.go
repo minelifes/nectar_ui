@@ -13,6 +13,7 @@ import (
 
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/gofont/gobold"
+	"golang.org/x/image/font/gofont/gomedium"
 	"golang.org/x/image/font/gofont/goregular"
 	"golang.org/x/image/font/sfnt"
 	"golang.org/x/image/math/fixed"
@@ -50,6 +51,15 @@ type Font struct {
 	// by WithFallback the font it was made from (glyph caches, atlas keys
 	// and metrics are shared with it).
 	face *Font
+
+	// family and weight are set by Family.Add (weight.go).
+	family *Family
+	weight FontWeight
+	// A synthetic bold (WithWeight) shares orig's glyph data, draws each
+	// glyph thickened by embolden em and reports weight synthetic.
+	orig      *Font
+	embolden  float32
+	synthetic FontWeight
 }
 
 // ParseFont parses TTF/OTF data.
@@ -192,7 +202,7 @@ func (f *Font) Advance(g GlyphID, size float32) float32 {
 		}
 		f.advances[g] = adv
 	}
-	return adv * f.scale(size)
+	return adv*f.scale(size) + f.embolden*size
 }
 
 // Kern returns the kerning adjustment between a and b at the given size.
@@ -236,9 +246,11 @@ func fx(v fixed.Int26_6) float32 { return float32(v) / 64 }
 // --- Built-in fonts --------------------------------------------------------
 
 var (
-	defaultOnce sync.Once
-	defaultReg  *Font
-	defaultBold *Font
+	defaultOnce   sync.Once
+	defaultReg    *Font
+	defaultMedium *Font
+	defaultBold   *Font
+	defaultFamily *Family
 )
 
 func loadDefaults() {
@@ -246,13 +258,26 @@ func loadDefaults() {
 	if defaultReg, err = ParseFont("Go Regular", goregular.TTF); err != nil {
 		panic(err)
 	}
+	if defaultMedium, err = ParseFont("Go Medium", gomedium.TTF); err != nil {
+		panic(err)
+	}
 	if defaultBold, err = ParseFont("Go Bold", gobold.TTF); err != nil {
 		panic(err)
 	}
+	defaultFamily = NewFamily("Go").Add(Normal, defaultReg).Add(Medium, defaultMedium).Add(Bold, defaultBold)
 }
 
 // DefaultFont returns the embedded Go Regular font (Latin, Cyrillic, Greek).
+// It's the Normal face of DefaultFamily, so Style.Weight works with it.
 func DefaultFont() *Font { defaultOnce.Do(loadDefaults); return defaultReg }
+
+// DefaultMediumFont returns the embedded Go Medium font (weight 500).
+func DefaultMediumFont() *Font { defaultOnce.Do(loadDefaults); return defaultMedium }
 
 // DefaultBoldFont returns the embedded Go Bold font.
 func DefaultBoldFont() *Font { defaultOnce.Do(loadDefaults); return defaultBold }
+
+// DefaultFamily returns the embedded Go family: Normal, Medium and Bold
+// (other weights use the closest; 800 and 900 are a synthetic bold of
+// Go Bold).
+func DefaultFamily() *Family { defaultOnce.Do(loadDefaults); return defaultFamily }

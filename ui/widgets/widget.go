@@ -17,7 +17,10 @@
 package widgets
 
 import (
+	"context"
+	"fmt"
 	"reflect"
+	"sync/atomic"
 
 	"github.com/minelifes/nectar_ui/ui/render"
 )
@@ -37,8 +40,30 @@ type StatefulWidget interface {
 
 // State is the mutable half of a StatefulWidget. Embed StateBase.
 //
-// Optional hooks: InitState(), DidUpdateWidget(old Widget), Dispose(),
-// and Reassemble() (see Root.Reassemble).
+// Optional hooks, in the order they run:
+//
+//   - InitState(): once, when the state is created and enters the tree,
+//     before its first Build. Never again for this state, however often it
+//     rebuilds.
+//   - DidUpdateWidget(old Widget): when the parent rebuilds it with new
+//     fields.
+//   - Reassemble(): on hot reload (see Root.Reassemble).
+//   - OnDestroy() (or Dispose(), the same hook under its Flutter name; a
+//     state may have both): once, when it leaves the tree for good. Then
+//     everything registered with Own and Listen is released, newest first,
+//     and the state is detached, so nothing the tree holds keeps it alive.
+//
+// Free resources in OnDestroy, or register them with Own as you create them
+// so they can't be forgotten:
+//
+//	func (s *clockState) InitState() {
+//	    t := time.NewTicker(time.Second)
+//	    s.Own(t)                                  // t.Stop() on destroy
+//	    s.Listen(settings.Changed, s.reload)      // unsubscribed on destroy
+//	    ctx, cancel := context.WithCancel(context.Background())
+//	    s.Own(cancel)                             // cancels in-flight work
+//	    go s.tick(ctx, t.C)
+//	}
 type State interface {
 	Build(ctx BuildContext) Widget
 	stateBase() *StateBase
@@ -173,7 +198,9 @@ func canUpdate(old, w Widget) bool {
 
 // StateBase must be embedded in every State implementation.
 type StateBase struct {
-	element *statefulElement
+	element   *statefulElement
+	cleanups  []func()
+	destroyed bool
 }
 
 func (s *StateBase) stateBase() *StateBase { return s }
@@ -212,6 +239,108 @@ func (s *StateBase) Post(fn func()) {
 	})
 }
 
+// Own registers v to be released when the state is destroyed (after
+// OnDestroy / Dispose), so subscriptions, timers and background work end
+// with the widget. Releases run newest first. v may be:
+//
+//   - a func() or func() error, e.g. the cancel func from Subscribe or a
+//     context.CancelFunc: it's called;
+//   - a value with Close() error / Close(), Dispose(), Cancel(),
+//     Stop() / Stop() bool (time.Timer, time.Ticker) or Unsubscribe():
+//     that method is called.
+//
+// Own returns v. Owning something after the state was destroyed releases
+// it right away. Call it on the UI goroutine (InitState, Build, handlers).
+func (s *StateBase) Own(v any) any {
+	release := releaser(v)
+	if s.destroyed {
+		release()
+		return v
+	}
+	s.cleanups = append(s.cleanups, release)
+	return v
+}
+
+// Listen calls fn on the UI goroutine after every change of l, until the
+// state is destroyed; then it unsubscribes. Unlike the package-level
+// Listen it doesn't rebuild by itself: call SetState in fn if the change
+// should show (or use widgets.Listen in Build). Changes that arrive while
+// the previous fn is still pending are folded into one call.
+func (s *StateBase) Listen(l Listenable, fn func()) {
+	if l == nil || fn == nil {
+		return
+	}
+	var pending atomic.Bool
+	var gone atomic.Bool
+	cancel := l.Subscribe(func() {
+		e := s.element
+		if gone.Load() || e == nil || e.owner == nil || !pending.CompareAndSwap(false, true) {
+			return
+		}
+		e.owner.Post(func() {
+			pending.Store(false)
+			if !gone.Load() && s.Mounted() {
+				fn()
+			}
+		})
+	})
+	s.Own(func() { gone.Store(true); cancel() })
+}
+
+// Destroyed reports whether the state has left the tree for good
+// (OnDestroy has run). Background work can check it before posting.
+func (s *StateBase) Destroyed() bool { return s.destroyed }
+
+// destroy releases everything owned, newest first. A panicking release
+// doesn't stop the others; the first panic is re-raised after.
+func (s *StateBase) destroy() {
+	s.destroyed = true
+	cleanups := s.cleanups
+	s.cleanups = nil
+	var first any
+	for i := len(cleanups) - 1; i >= 0; i-- {
+		func() {
+			defer func() {
+				if r := recover(); r != nil && first == nil {
+					first = r
+				}
+			}()
+			cleanups[i]()
+		}()
+	}
+	if first != nil {
+		panic(first)
+	}
+}
+
+func releaser(v any) func() {
+	switch x := v.(type) {
+	case nil:
+		return func() {}
+	case func():
+		return x
+	case context.CancelFunc:
+		return x
+	case func() error:
+		return func() { _ = x() }
+	case interface{ Close() error }:
+		return func() { _ = x.Close() }
+	case interface{ Close() }:
+		return x.Close
+	case interface{ Dispose() }:
+		return x.Dispose
+	case interface{ Cancel() }:
+		return x.Cancel
+	case interface{ Stop() bool }:
+		return func() { x.Stop() }
+	case interface{ Stop() }:
+		return x.Stop
+	case interface{ Unsubscribe() }:
+		return x.Unsubscribe
+	}
+	panic(fmt.Sprintf("widgets: Own(%T): want a func() or a value with Close, Dispose, Cancel, Stop or Unsubscribe", v))
+}
+
 // WidgetOf returns a State's widget as its concrete type.
 func WidgetOf[W any](s State) W { return s.stateBase().Widget().(W) }
 
@@ -220,5 +349,6 @@ type (
 	initStater      interface{ InitState() }
 	didUpdateWidget interface{ DidUpdateWidget(old Widget) }
 	disposer        interface{ Dispose() }
+	destroyer       interface{ OnDestroy() }
 	reassembler     interface{ Reassemble() }
 )

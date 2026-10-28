@@ -54,7 +54,7 @@ Run these inside an app (any folder under its `go.mod`):
 nectar add route /settings/profile Profile -icon person   # page + entry in Routes
 nectar add route /about About -hidden                     # reachable with app.Go only, no rail entry
 nectar create statelessWidget StatusBadge                 # internal/components/status_badge.go
-nectar create statefulWidget Counter                      # widget + State (InitState, DidUpdateWidget, Dispose)
+nectar create statefulWidget Counter                      # widget + State (InitState, DidUpdateWidget, OnDestroy, Own)
 nectar create model User                                  # internal/models/user.go (json tags, Validate)
 nectar create mvvm Todo -route /todos                     # internal/features/todo: model, viewmodel, view, test
 nectar create page Reports                                # internal/pages/reports (no route)
@@ -167,6 +167,33 @@ func (s *counterState) Build(ctx widgets.BuildContext) widgets.Widget { ... }
 // s.SetState(func(){ s.n++ })  on the UI goroutine
 // s.Post(func(){ s.n++ })      from any goroutine
 ```
+
+**State lifecycle.** A `State` can have these optional methods:
+
+| Hook | When it runs |
+|---|---|
+| `InitState()` | once, when the widget is created and enters the tree, before its first `Build`; never again for that state, however often it rebuilds |
+| `DidUpdateWidget(old)` | the parent rebuilt it with new fields (`widgets.WidgetOf[T](s)` is the new widget) |
+| `OnDestroy()` | once, when it leaves the tree for good. `Dispose()` is the same hook under its Flutter name. |
+
+Instead of remembering to undo everything in `OnDestroy`, register it with `s.Own` as you create it. After `OnDestroy`, every owned value is released (newest first), the state is detached from the tree so it can be garbage-collected, and `s.Destroyed()` turns true:
+
+```go
+func (s *clockState) InitState() {
+    t := time.NewTicker(time.Second)
+    s.Own(t)                                   // t.Stop()
+    ctx, cancel := context.WithCancel(context.Background())
+    s.Own(cancel)                              // cancels the goroutine's work
+    s.Own(file)                                // file.Close()
+    s.Own(vm.Items.Subscribe(s.onItems))       // the cancel func Subscribe returns
+    s.Listen(settings, func() { s.SetState(nil) }) // runs on the UI goroutine; unsubscribed on destroy
+    go s.run(ctx, t.C)
+}
+
+func (s *clockState) OnDestroy() { /* anything Own can't express */ }
+```
+
+`Own` takes a `func()` / `func() error` (cancel funcs, `context.CancelFunc`), or anything with `Close`, `Dispose`, `Cancel`, `Stop` or `Unsubscribe`. Owning something after the state was destroyed releases it immediately, so late callbacks can't leak. `s.Listen(l, fn)` subscribes to any `Listenable` (view models, `mvvm` properties, services) and calls `fn` on the UI goroutine. Unlike `widgets.Listen(ctx, l)` in `Build`, it doesn't rebuild by itself.
 
 Custom render object: write a struct embedding `render.Box` (plus `render.SingleChild` / `render.MultiChild` if it has children). Implement `PerformLayout` and `Paint`, plus `VisitChildren` for leaves. Then add a widget that implements `CreateRenderObject` / `UpdateRenderObject` (+ `ChildWidget()` / `ChildWidgets()`). `render.RenderParagraph` and `widgets.paragraph` are the smallest complete example.
 

@@ -2,6 +2,7 @@ package [[.Pkg]]
 
 import (
 	"fmt"
+	"time"
 
 	m "[[.Engine]]/ui/material"
 	w "[[.Engine]]/ui/widgets"
@@ -17,23 +18,43 @@ func ([[.Name]]) CreateState() w.State { return &[[.Lower]]State{} }
 
 type [[.Lower]]State struct {
 	w.StateBase
-	count int
+	count   int
+	elapsed int
 }
 
-// InitState runs once, when the widget enters the tree.
+// InitState runs once, when the widget enters the tree, before the first
+// Build. Start timers and subscriptions here and hand them to s.Own (or
+// s.Listen for view models and services): they're released automatically
+// when the widget is destroyed.
 func (s *[[.Lower]]State) InitState() {
 	s.count = w.WidgetOf[ [[.Name]] ](s).Initial
+	tick := time.NewTicker(time.Second)
+	s.Own(tick) // tick.Stop() on destroy
+	done := make(chan struct{})
+	s.Own(func() { close(done) }) // ends the goroutine below
+	go func() {
+		for {
+			select {
+			case <-tick.C:
+				s.Post(func() { s.elapsed++ })
+			case <-done:
+				return
+			}
+		}
+	}()
 }
 
 // DidUpdateWidget runs when the parent rebuilds it with new fields.
 func (s *[[.Lower]]State) DidUpdateWidget(old w.Widget) {}
 
-// Dispose runs when it leaves the tree: stop timers, cancel work here.
-func (s *[[.Lower]]State) Dispose() {}
+// OnDestroy runs once, when the widget leaves the tree for good, before
+// what was given to s.Own is released. Free anything else here.
+func (s *[[.Lower]]State) OnDestroy() {}
 
 func (s *[[.Lower]]State) Build(ctx w.BuildContext) w.Widget {
 	return w.Row{Cross: w.CrossCenter, Spacing: 12, Children: []w.Widget{
 		w.Text{Text: fmt.Sprintf("Count: %d", s.count), Style: m.ThemeOf(ctx).Text.BodyLarge},
+		w.Text{Text: fmt.Sprintf("%ds", s.elapsed), Style: m.ThemeOf(ctx).Text.BodySmall},
 		m.FilledButton{Label: "Add", OnPressed: func() { s.SetState(func() { s.count++ }) }},
 	}}
 }

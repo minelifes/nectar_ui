@@ -288,11 +288,20 @@ func (e *statefulElement) rebuild() {
 
 func (e *statefulElement) unmount() {
 	e.unmountChild()
+	sb := e.state.stateBase()
+	defer func() {
+		// Even if a hook panics: release what's owned and detach, so the
+		// state and what it holds can be collected.
+		e.unmountBase()
+		sb.element = nil
+		sb.destroy()
+	}()
+	if s, ok := e.state.(destroyer); ok {
+		s.OnDestroy()
+	}
 	if s, ok := e.state.(disposer); ok {
 		s.Dispose()
 	}
-	e.unmountBase()
-	e.state.stateBase().element = nil
 }
 
 // inheritedElement

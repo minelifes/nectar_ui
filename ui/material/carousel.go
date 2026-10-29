@@ -54,6 +54,9 @@ type Carousel struct {
 	// through and the page continues scrolling. Horizontal scrolling works
 	// either way and releases at the ends the same way.
 	WheelScroll bool
+	// Physics: with bouncing physics (the default) dragging past the first
+	// or last item pulls the items with resistance and they spring back.
+	Physics w.ScrollPhysics
 }
 
 func (Carousel) CreateState() w.State { return &carouselState{} }
@@ -68,6 +71,70 @@ type carouselState struct {
 	wheelFrom float32 // position when the current wheel gesture started
 	snapFrom  float32
 	snapTo    float32
+	over      float32 // px past the first (<0) or last (>0) item while bouncing
+	bounce    *w.Ticker
+	physics   w.ScrollPhysics
+}
+
+// setOver shifts the items past the edge by v pixels.
+func (s *carouselState) setOver(v float32) {
+	if v != s.over {
+		s.SetState(func() { s.over = v })
+	}
+}
+
+func (s *carouselState) stopBounce() {
+	if s.bounce != nil {
+		s.bounce.Stop()
+		s.bounce = nil
+	}
+}
+
+// drag scrolls by d pixels (positive = toward the end), pulling past the
+// edges with resistance under bouncing physics.
+func (s *carouselState) drag(d float32) {
+	s.stopBounce()
+	width := float32(1)
+	if s.ro != nil {
+		width = s.ro.Size().W
+	}
+	if s.over != 0 {
+		if (d < 0) != (s.over < 0) { // back toward the items
+			nv := s.over + d
+			if (nv < 0) != (s.over < 0) || nv == 0 {
+				s.setOver(0)
+				d = nv
+			} else {
+				s.setOver(nv)
+				d = 0
+			}
+		} else {
+			s.setOver(s.over + d*w.OverscrollFriction(s.over, width))
+			d = 0
+		}
+	}
+	if d == 0 {
+		return
+	}
+	target := s.pos + d/s.unit()
+	s.setPos(target)
+	if rest := (target - s.pos) * s.unit(); rest != 0 && s.physics != w.ClampingScrollPhysics && s.maxPos() > 0 {
+		s.setOver(rest * w.OverscrollFriction(0, width))
+	}
+}
+
+// springBack returns the items to the edge after a drag.
+func (s *carouselState) springBack() {
+	s.stopBounce()
+	x0 := s.over
+	s.bounce = s.Context().Owner().NewTicker(func(el time.Duration) {
+		x, done := w.SpringBack(x0, 0, el.Seconds())
+		s.setOver(x)
+		if done {
+			s.stopBounce()
+		}
+	})
+	s.bounce.Start()
 }
 
 func (s *carouselState) c() Carousel { return w.WidgetOf[Carousel](s) }
@@ -93,6 +160,7 @@ func (s *carouselState) InitState() {
 
 func (s *carouselState) Dispose() {
 	s.stopSnap()
+	s.stopBounce()
 	if s.wheelTick != nil {
 		s.wheelTick.Stop()
 	}
@@ -217,13 +285,17 @@ func (s *carouselState) Build(ctx w.BuildContext) w.Widget {
 	for i, it := range c.Items {
 		items[i] = w.KeyedSubtree{ID: i, Child: w.IgnorePointer{Ignoring: true, Child: it}}
 	}
-	body := carouselView{state: s, layout: c.Layout, extent: c.ItemExtent, height: c.Height, pos: s.pos, colors: colors, radius: pickF(ct.Radius, CornerExtraLarge), items: items}
+	s.physics = w.ResolveScrollPhysics(ctx, c.Physics)
+	body := carouselView{state: s, layout: c.Layout, extent: c.ItemExtent, height: c.Height, pos: s.pos, over: s.over, colors: colors, radius: pickF(ct.Radius, CornerExtraLarge), items: items}
 	return w.Focus{Node: s.node, Child: w.Listener{OnEvent: s.onWheel, Child: w.GestureDetector{
-		OnPanStart: func(w.DragDetails) { s.stopSnap() },
-		OnPanUpdate: func(d w.DragDetails) {
-			s.setPos(s.pos - d.Delta.X/s.unit())
+		OnPanStart:  func(w.DragDetails) { s.stopSnap(); s.stopBounce() },
+		OnPanUpdate: func(d w.DragDetails) { s.drag(-d.Delta.X) },
+		OnPanEnd: func(d w.DragDetails) {
+			if s.over != 0 {
+				s.springBack()
+			}
+			s.snap()
 		},
-		OnPanEnd: func(d w.DragDetails) { s.snap() },
 		OnTapUp: func(d w.TapDetails) {
 			s.node.RequestFocus()
 			if c.OnTap != nil && s.ro != nil {
@@ -243,6 +315,7 @@ type carouselView struct {
 	extent float32
 	height float32
 	pos    float32
+	over   float32
 	colors []geom.Color
 	radius float32
 	items  []w.Widget
@@ -268,6 +341,10 @@ func (v carouselView) UpdateRenderObject(_ w.BuildContext, ro render.RenderObjec
 		r.pos = v.pos
 		render.MarkNeedsLayout(r) // positions and masks depend on pos
 	}
+	if r.over != v.over {
+		r.over = v.over
+		render.MarkNeedsLayout(r) // the items move
+	}
 	r.colors, r.radius = v.colors, v.radius
 	render.MarkNeedsPaint(r)
 }
@@ -280,6 +357,7 @@ type renderCarousel struct {
 	extent float32
 	height float32
 	pos    float32
+	over   float32 // bounce: items shifted left by over px
 	colors []geom.Color
 	radius float32
 
@@ -380,6 +458,7 @@ func (r *renderCarousel) PerformLayout(c geom.Constraints) geom.Size {
 		} else {
 			m = interpKeylines(kls, slot, size.H)
 		}
+		m.X -= r.over // bounce: pulled past the first / last item
 		r.masks = append(r.masks, m)
 		render.Layout(ch, geom.Tight(geom.Size{W: full, H: size.H}))
 		// Content is centered in its mask (parallax as the mask resizes).

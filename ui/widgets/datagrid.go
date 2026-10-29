@@ -88,6 +88,9 @@ func (s *gridState) follow(dst, src *ScrollController) {
 	}
 	s.syncing = true
 	dst.JumpTo(src.Offset())
+	if dst.vp != nil {
+		dst.setOver(src.over) // the header bounces with the body
+	}
 	s.syncing = false
 }
 

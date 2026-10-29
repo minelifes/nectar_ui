@@ -14,6 +14,7 @@ type ScrollView2D struct {
 	Horizontal *ScrollController // nil = internal
 	Vertical   *ScrollController // nil = internal
 	ThumbColor geom.Color        // scrollbars; zero = none
+	Physics    ScrollPhysics     // see ScrollView
 	Child      Widget
 }
 
@@ -45,6 +46,8 @@ func (s *scroll2DState) controllers() {
 func (s *scroll2DState) Build(ctx BuildContext) Widget {
 	w := WidgetOf[ScrollView2D](s)
 	h, v := s.h, s.v
+	h.physics = resolvePhysics(ctx, w.Physics)
+	v.physics = h.physics
 	return Listener{
 		OnEvent: func(e PointerEvent) {
 			if e.Kind != render.PointerScroll || e.Winner() != nil {
@@ -52,13 +55,13 @@ func (s *scroll2DState) Build(ctx BuildContext) Widget {
 			}
 			moved := false
 			if e.Scroll.X != 0 {
-				moved = h.ScrollBy(e.Scroll.X) || moved
+				moved = h.wheel(e.Scroll.X, e) || moved
 			}
 			if e.Scroll.Y != 0 {
 				if Modifiers(e.Mods).Shift() && e.Scroll.X == 0 {
-					moved = h.ScrollBy(e.Scroll.Y) || moved
+					moved = h.wheel(e.Scroll.Y, e) || moved
 				} else {
-					moved = v.ScrollBy(e.Scroll.Y) || moved
+					moved = v.wheel(e.Scroll.Y, e) || moved
 				}
 			}
 			if moved && v.vp != nil {
@@ -66,11 +69,13 @@ func (s *scroll2DState) Build(ctx BuildContext) Widget {
 			}
 		},
 		Child: GestureDetector{
+			OnPanStart: func(DragDetails) { h.dragStart(); v.dragStart() },
 			OnPanUpdate: func(d DragDetails) {
-				h.ScrollBy(-d.Delta.X)
-				v.ScrollBy(-d.Delta.Y)
+				h.dragBy(-d.Delta.X)
+				v.dragBy(-d.Delta.Y)
 			},
-			Child: viewport2D{h: h, v: v, thumb: w.ThumbColor, owner: ctx.Owner(), child: RepaintBoundary{Child: w.Child}},
+			OnPanEnd: func(DragDetails) { h.dragEnd(); v.dragEnd() },
+			Child:    viewport2D{h: h, v: v, thumb: w.ThumbColor, owner: ctx.Owner(), child: RepaintBoundary{Child: w.Child}},
 		},
 	}
 }

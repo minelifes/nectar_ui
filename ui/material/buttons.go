@@ -465,7 +465,8 @@ func (b SegmentedButton) Build(ctx w.BuildContext) w.Widget {
 				c.StrokeRoundRect(geom.RectFrom(o, size), min(radius, size.H/2), bw, border)
 			}
 		},
-		Child: w.Row{ShrinkMain: false, Children: kids},
+		// The segments' hover, press and focus layers follow the pill ends.
+		Child: w.Clip{Radius: radius, Child: w.Row{ShrinkMain: false, Children: kids}},
 	}
 }
 

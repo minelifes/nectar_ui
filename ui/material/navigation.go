@@ -201,9 +201,16 @@ func (s *navBarState) Build(ctx w.BuildContext) w.Widget {
 		if nb.OnSelected != nil {
 			tap = func() { nb.OnSelected(i) }
 		}
+		// M3: hover, focus and press show on the indicator pill, not the
+		// whole destination.
+		contentH := float32(32)
+		if !nb.HideLabels {
+			contentH += 4 + lineHeightOf(pickTC(st.LabelTextStyle, th.Text.LabelMedium, lc))
+		}
 		items[i] = w.Expanded{Child: w.Semantics{SemanticsData: w.SemanticsData{Role: "tab", Label: d.Label, Selected: sel, Disabled: tap == nil, OnTap: tap},
 			Child: InkSurface{OnTap: tap, ContentColor: pick(st.OverlayColor, sc.OnSurface), NoFocus: false,
-				Child: w.Column{Main: w.MainCenter, Cross: w.CrossCenter, Children: kids}}}}
+				Highlight: indicatorHighlight(64, 32, contentH),
+				Child:     w.Column{Main: w.MainCenter, Cross: w.CrossCenter, Children: kids}}}}
 	}
 	return w.Container{Color: pick(st.BackgroundColor, sc.SurfaceContainer), Height: pickF(st.Height, 80),
 		Child: w.Padding{Padding: geom.InsetsHV(8, 0), Child: w.Row{Cross: w.CrossStretch, Spacing: 8, Children: items}}}
@@ -248,7 +255,10 @@ func (s *navRailState) Build(ctx w.BuildContext) w.Widget {
 		if nr.OnSelected != nil {
 			tap = func() { nr.OnSelected(i) }
 		}
+		labelStyle := pickTC(st.LabelTextStyle, th.Text.LabelMedium, lc)
 		kids = append(kids, InkSurface{OnTap: tap, ContentColor: pick(st.OverlayColor, sc.OnSurface), Radius: CornerLarge,
+			// M3: the state layer is the indicator pill.
+			Highlight: indicatorHighlight(56, 32, 32+4+lineHeightOf(labelStyle)),
 			Child: w.SizedBox{Width: width, Height: 56, Child: w.Column{Main: w.MainCenter, Cross: w.CrossCenter, Children: []w.Widget{
 				w.CustomPaint{Size: geom.Sz(56, 32),
 					Painter: func(c *render.Canvas, o geom.Offset, size geom.Size) {
@@ -256,7 +266,7 @@ func (s *navRailState) Build(ctx w.BuildContext) w.Widget {
 					},
 					Child: w.Center{Child: badged(w.Icon{Icon: d.icon(sel), Size: 24, Color: ic}, d.Badge)}},
 				w.SizedBox{Height: 4},
-				w.Text{Text: d.Label, Style: pickTC(st.LabelTextStyle, th.Text.LabelMedium, lc), MaxLines: 1},
+				w.Text{Text: d.Label, Style: labelStyle, MaxLines: 1},
 			}}}}, w.SizedBox{Height: 12})
 	}
 	if nr.Trailing != nil {
@@ -577,4 +587,23 @@ func (s *ScaffoldState) Build(ctx w.BuildContext) w.Widget {
 		}
 	}
 	return scaffoldScope{state: s, child: w.Stack{Expand: true, Children: layers}}
+}
+
+// indicatorHighlight places the state layer on a navigation indicator:
+// w×h, centered horizontally, at the top of a contentH-tall column that is
+// centered vertically in the item.
+func indicatorHighlight(iw, ih, contentH float32) func(geom.Size) (geom.Rect, float32) {
+	return func(size geom.Size) (geom.Rect, float32) {
+		top := max(0, (size.H-contentH)/2)
+		return geom.Rect{X: (size.W - iw) / 2, Y: top, W: iw, H: ih}, ih / 2
+	}
+}
+
+// lineHeightOf is the height of one line of text in style st.
+func lineHeightOf(st text.Style) float32 {
+	r := st.Resolved()
+	if r.LineHeight > 0 {
+		return r.Size * r.LineHeight
+	}
+	return r.Font.Metrics(r.Size).LineHeight()
 }

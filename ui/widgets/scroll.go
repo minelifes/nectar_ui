@@ -19,6 +19,14 @@ type ScrollController struct {
 	animFrom, animTo   float32
 	animDur            time.Duration
 	lastExtent, lastCt float32
+
+	// Physics (scroll_physics.go): set by the scroll view using it.
+	physics   ScrollPhysics
+	over      float32
+	sim       *Ticker
+	simWait   bool // sim is waiting for the wheel to stop
+	samples   []scrollSample
+	lastWheel time.Time
 }
 
 // NewScrollController creates a controller starting at offset 0.
@@ -57,10 +65,19 @@ func (c *ScrollController) notify() {
 	}
 }
 
-// JumpTo scrolls immediately.
+// JumpTo scrolls immediately (ending any fling or bounce).
 func (c *ScrollController) JumpTo(v float32) {
 	c.stopAnim()
+	c.settle()
 	c.set(v)
+}
+
+// settle ends a fling or bounce at once.
+func (c *ScrollController) settle() {
+	c.stopSim()
+	if c.over != 0 && c.vp != nil {
+		c.setOver(0)
+	}
 }
 
 func (c *ScrollController) set(v float32) bool {
@@ -77,9 +94,11 @@ func (c *ScrollController) set(v float32) bool {
 	return false
 }
 
-// ScrollBy scrolls by delta; returns whether the offset changed.
+// ScrollBy scrolls by delta, clamped to the content (no bounce); returns
+// whether the offset changed.
 func (c *ScrollController) ScrollBy(delta float32) bool {
 	c.stopAnim()
+	c.settle()
 	return c.set(c.Offset() + delta)
 }
 
@@ -90,6 +109,7 @@ func (c *ScrollController) AnimateTo(v float32, d time.Duration) {
 		return
 	}
 	c.stopAnim()
+	c.settle()
 	c.animFrom, c.animTo, c.animDur = c.Offset(), v, d
 	c.anim = c.owner.NewTicker(func(el time.Duration) {
 		t := min(float32(el)/float32(c.animDur), 1)
@@ -138,7 +158,10 @@ type ScrollView struct {
 	Controller *ScrollController
 	Padding    geom.EdgeInsets
 	ThumbColor geom.Color // scrollbar; zero = none
-	Child      Widget
+	// Physics: bouncing or clamping at the edges (InheritPhysics = the
+	// nearest ScrollConfiguration's, else DefaultScrollPhysics).
+	Physics ScrollPhysics
+	Child   Widget
 
 	// strictAxis: a horizontal view ignores vertical wheel deltas (by
 	// default a plain mouse wheel scrolls horizontal lists too).
@@ -176,6 +199,7 @@ func (s *scrollState) Build(ctx BuildContext) Widget {
 	// Scrolling only moves the content: replay its display list instead of
 	// repainting it.
 	child = RepaintBoundary{Child: child}
+	ctrl.physics = resolvePhysics(ctx, w.Physics)
 	return Listener{
 		OnEvent: func(e PointerEvent) {
 			// An inner scroll view that already moved has claimed the event.
@@ -189,19 +213,21 @@ func (s *scrollState) Build(ctx BuildContext) Widget {
 					d = e.Scroll.Y
 				}
 			}
-			if ctrl.ScrollBy(d) && ctrl.vp != nil {
+			if d != 0 && ctrl.wheel(d, e) && ctrl.vp != nil {
 				e.Claim(ctrl.vp.Viewport())
 			}
 		},
 		Child: GestureDetector{
+			OnPanStart: func(DragDetails) { ctrl.dragStart() },
 			OnPanUpdate: func(d DragDetails) {
 				if !w.Horizontal {
-					ctrl.ScrollBy(-d.Delta.Y)
+					ctrl.dragBy(-d.Delta.Y)
 				} else {
-					ctrl.ScrollBy(-d.Delta.X)
+					ctrl.dragBy(-d.Delta.X)
 				}
 			},
-			Child: viewport{axis: axis, ctrl: ctrl, thumb: w.ThumbColor, owner: ctx.Owner(), child: child},
+			OnPanEnd: func(DragDetails) { ctrl.dragEnd() },
+			Child:    viewport{axis: axis, ctrl: ctrl, thumb: w.ThumbColor, owner: ctx.Owner(), child: child},
 		},
 	}
 }
@@ -243,11 +269,12 @@ type ListView struct {
 	Padding    geom.EdgeInsets
 	Spacing    float32
 	ThumbColor geom.Color
+	Physics    ScrollPhysics // see ScrollView
 	Children   []Widget
 }
 
 func (w ListView) Build(BuildContext) Widget {
-	return ScrollView{Horizontal: w.Horizontal, Controller: w.Controller, Padding: w.Padding, ThumbColor: w.ThumbColor,
+	return ScrollView{Horizontal: w.Horizontal, Controller: w.Controller, Padding: w.Padding, ThumbColor: w.ThumbColor, Physics: w.Physics,
 		Child: Flex{Direction: axisOf(w.Horizontal), Cross: CrossStretch, Spacing: w.Spacing, ShrinkMain: true, Children: w.Children}}
 }
 
@@ -268,6 +295,7 @@ type ListViewBuilder struct {
 	// it, and the next header pushes it away.
 	IsHeader   func(index int) bool
 	ThumbColor geom.Color
+	Physics    ScrollPhysics // see ScrollView
 }
 
 func (ListViewBuilder) CreateState() State { return &lazyListState{} }
@@ -422,7 +450,7 @@ func (s *lazyListState) Build(ctx BuildContext) Widget {
 	if s.end < w.ItemCount {
 		kids = append(kids, KeyedSubtree{ID: "tail", Child: spacer(s.total() - s.start(s.end))})
 	}
-	list := ScrollView{Horizontal: w.Horizontal, Controller: s.ctrl, ThumbColor: w.ThumbColor,
+	list := ScrollView{Horizontal: w.Horizontal, Controller: s.ctrl, ThumbColor: w.ThumbColor, Physics: w.Physics,
 		Child: Flex{Direction: axisOf(w.Horizontal), Cross: CrossStretch, ShrinkMain: true, Children: kids}}
 	if w.IsHeader == nil || w.Horizontal {
 		return list

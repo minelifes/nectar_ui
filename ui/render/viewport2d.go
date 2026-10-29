@@ -34,6 +34,7 @@ type RenderViewport2D struct {
 	OnMetrics func(viewport, content geom.Size)
 
 	off     geom.Offset
+	over    geom.Offset // overscroll per axis (see Overscroller)
 	content geom.Size
 }
 
@@ -70,7 +71,7 @@ func (r *RenderViewport2D) SetScrollOffset2D(o geom.Offset) geom.Offset {
 
 func (r *RenderViewport2D) syncChild() {
 	if r.child != nil {
-		SetOffset(r.child, geom.Offset{X: -r.off.X, Y: -r.off.Y})
+		SetOffset(r.child, geom.Offset{X: -r.off.X - r.over.X, Y: -r.off.Y - r.over.Y})
 	}
 }
 
@@ -174,3 +175,26 @@ func (v viewportAxis) SetScrollOffset(x float32) float32 {
 }
 
 func (v viewportAxis) Viewport() RenderObject { return v.r }
+
+// SetOverscroll shifts the content past this axis' edge (Overscroller).
+func (v viewportAxis) SetOverscroll(x float32) {
+	o := v.r.over
+	if v.a == Horizontal {
+		o.X = x
+	} else {
+		o.Y = x
+	}
+	if o != v.r.over {
+		v.r.over = o
+		v.r.syncChild()
+		MarkNeedsPaint(v.r)
+	}
+}
+
+// Overscroll returns this axis' overscroll.
+func (v viewportAxis) Overscroll() float32 {
+	if v.a == Horizontal {
+		return v.r.over.X
+	}
+	return v.r.over.Y
+}

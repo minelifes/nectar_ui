@@ -17,8 +17,30 @@ type RenderViewport struct {
 	OnMetrics func(viewport, content float32)
 
 	offset  float32
+	over    float32 // overscroll (bouncing physics): <0 past the start, >0 past the end
 	content float32
 }
+
+// Overscroller is a scroll axis that can show content pulled past its
+// edges (bouncing scroll physics): the content is drawn shifted by v on
+// top of the (valid, clamped) scroll offset.
+type Overscroller interface {
+	SetOverscroll(v float32)
+	Overscroll() float32
+}
+
+// SetOverscroll shifts the content past its edge by v (negative: past the
+// start). Paint only; no relayout.
+func (r *RenderViewport) SetOverscroll(v float32) {
+	if v != r.over {
+		r.over = v
+		r.syncChild()
+		MarkNeedsPaint(r)
+	}
+}
+
+// Overscroll returns the current overscroll.
+func (r *RenderViewport) Overscroll() float32 { return r.over }
 
 // Offset returns the current scroll offset.
 func (r *RenderViewport) Offset() float32 { return r.offset }
@@ -53,10 +75,11 @@ func (r *RenderViewport) syncChild() {
 	if r.child == nil {
 		return
 	}
+	v := r.offset + r.over
 	if r.Axis == Vertical {
-		SetOffset(r.child, geom.Offset{Y: -r.offset})
+		SetOffset(r.child, geom.Offset{Y: -v})
 	} else {
-		SetOffset(r.child, geom.Offset{X: -r.offset})
+		SetOffset(r.child, geom.Offset{X: -v})
 	}
 }
 
@@ -112,6 +135,9 @@ func (r *RenderViewport) Paint(ctx *PaintContext, o geom.Offset) {
 	// The cross axis never hides content either.
 	clip := rect
 	atStart, atEnd := r.offset <= 0.5, r.offset >= r.MaxOffset()-0.5
+	if r.over != 0 { // content pulled past an edge: nothing may bleed out
+		atStart, atEnd = false, false
+	}
 	if r.Axis == Vertical {
 		clip.X, clip.W = clip.X-PaintBleed, clip.W+2*PaintBleed
 		if atStart {
@@ -140,8 +166,18 @@ func (r *RenderViewport) Paint(ctx *PaintContext, o geom.Offset) {
 	if w <= 0 {
 		w = 4
 	}
-	thumb := max(ext*ext/r.content, 24)
-	pos := (ext - thumb) * (r.offset / r.MaxOffset())
+	// Overscrolled, the thumb shrinks at that end (like iOS / macOS).
+	over := abs32(r.over)
+	thumb := max(ext*ext/r.content-over, 12)
+	pos := (ext - max(ext*ext/r.content, 24)) * (r.offset / r.MaxOffset())
+	switch {
+	case r.over < 0:
+		pos = 0
+	case r.over > 0:
+		pos = ext - thumb
+	default:
+		thumb = max(ext*ext/r.content, 24)
+	}
 	var tr geom.Rect
 	if r.Axis == Vertical {
 		tr = geom.Rect{X: rect.Right() - w - 2, Y: rect.Y + pos, W: w, H: thumb}
@@ -149,4 +185,11 @@ func (r *RenderViewport) Paint(ctx *PaintContext, o geom.Offset) {
 		tr = geom.Rect{X: rect.X + pos, Y: rect.Bottom() - w - 2, W: thumb, H: w}
 	}
 	ctx.Canvas.FillRoundRect(tr, w/2, r.ThumbColor)
+}
+
+func abs32(v float32) float32 {
+	if v < 0 {
+		return -v
+	}
+	return v
 }

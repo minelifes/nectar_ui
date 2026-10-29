@@ -185,6 +185,21 @@ func (t *Tester) Drag(from, to geom.Offset) {
 	t.Pointer(render.PointerUp, to.X, to.Y)
 }
 
+// Fling drags from from to to over d (in 16 ms steps, so the gesture has
+// a speed) and releases without stopping: scroll views keep coasting.
+// Advance or Settle to let the fling run.
+func (t *Tester) Fling(from, to geom.Offset, d time.Duration) {
+	t.Pointer(render.PointerDown, from.X, from.Y)
+	const frame = 16 * time.Millisecond
+	steps := max(int(d/frame), 2)
+	for i := 1; i <= steps; i++ {
+		t.now = t.now.Add(frame)
+		p := geom.Pt(widgets.Lerp(from.X, to.X, float32(i)/float32(steps)), widgets.Lerp(from.Y, to.Y, float32(i)/float32(steps)))
+		t.Pointer(render.PointerMove, p.X, p.Y)
+	}
+	t.Pointer(render.PointerUp, to.X, to.Y)
+}
+
 // Hover moves the mouse (no buttons) to (x, y).
 func (t *Tester) Hover(x, y float32) { t.Pointer(render.PointerHover, x, y) }
 

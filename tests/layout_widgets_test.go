@@ -29,6 +29,7 @@ func TestScrollView2D(t *testing.T) {
 	}
 	tt.ScrollXY(100, 100, 0, 650)               // wheel: vertical
 	tt.ScrollXY(100, 100, 800, 0)               // sideways swipe: horizontal
+	tt.Settle()                                 // past the edges: bounces back
 	if h.Offset() != 700 || v.Offset() != 600 { // both clamped
 		t.Fatalf("offsets %v %v", h.Offset(), v.Offset())
 	}

@@ -449,6 +449,12 @@ widgets.LayoutBuilder{Builder: func(ctx widgets.BuildContext, c geom.Constraints
   - `ListViewBuilder` builds only the visible rows: fixed `ItemExtent`, or `ItemExtentOf(i)` for rows of different sizes, and `IsHeader(i)` for section headers that stay pinned at the top until the next one pushes them away.
   - `ScrollView2D` scrolls both ways (wheel, Shift+wheel, trackpad, drag), with a controller per axis.
   - `DataGrid` is a virtualized table: only visible rows are built, the header stays on top and scrolls sideways with the rows, columns resize by dragging.
+  - **Scroll physics:** every scrollable bounces by default (`BouncingScrollPhysics`, like iOS / macOS). This covers the views above, `Carousel`, and the Material widgets built on them.
+    - Dragging past an edge pulls the content with growing resistance, and it springs back on release. A flick keeps coasting, and a fling that hits an edge overshoots a little and bounces.
+    - At an edge, the wheel or trackpad bounces too, unless an outer scroll view can take the scroll; then that one scrolls.
+    - Lists too short to scroll don't bounce.
+    - `Physics: widgets.ClampingScrollPhysics` on a view stops hard at the edges. To change a whole subtree, wrap it in `widgets.ScrollConfiguration{Physics: …}`; to change the app-wide default, set `widgets.DefaultScrollPhysics` at startup.
+    - `ScrollController.Overscroll()` reports how far the content is pulled past an edge (negative at the start), e.g. for pull-to-refresh. In tests, `tt.Fling(from, to, duration)` drags with speed.
 - **Docking:** `Dock` + `DockController` arrange panels in tab groups and splits. Users drag tabs to reorder them, move them to another group or drop them on a group's edge to split it. Layouts save and restore as JSON, and background tabs keep their state (`Offstage`). `material.Dock` styles it (`Theme.Dock`).
 - **Drag and drop:** `Draggable` / `DragTarget` move data inside the app (with a feedback widget under the pointer); `FileDropTarget` receives files dropped from the OS file manager, with `OnEnter` / `OnMove` / `OnLeave` while they're dragged over it (to highlight the drop zone). In tests: `tt.DragFiles(paths, drop, points...)`.
 - **Windows and dialogs:** `widgets.OpenWindow` (or `ui.App.OpenWindow`) opens more native windows, each with its own widget tree. `widgets.ShowOpenDialog` / `ShowSaveDialog` use the system file dialogs.
@@ -480,12 +486,12 @@ app.Run(material.App{Theme: material.NewTheme(geom.Hex(0x6750A4), false), Dark: 
 - **Text input:** `TextField` (filled or outlined, floating label, hint, helper, error, icons, counter), `SearchBar`.
 - **Navigation:** `AppBar` (small, center, medium, large, with auto back), `NavigationBar`, `NavigationRail`, `NavigationDrawer`, `TabBar` / `TabBarView`, `BottomAppBar`, `Scaffold` (with drawer), `Push` / `Pop`.
 - **Data:** `DataTable` (sorting, row selection), `Stepper`.
-- **Building blocks for your own components:** `Surface` (a painted container) and `InkSurface`, which adds state layers, a ripple, a focus ring, keyboard activation and elevation on hover.
+- **Building blocks for your own components:** `Surface` (a painted container) and `InkSurface`, which adds state layers, a ripple, a focus ring, keyboard activation and elevation on hover. Hover, press and focus feedback always follow the component's shape. `InkSurface.Highlight` puts them on a part of it, the way navigation destinations highlight just their indicator pill.
 - **Clipping:** containers keep their content inside. `Surface` and `InkSurface` (and so every card, button, chip, dialog and sheet built on them) and `widgets.Container` with a `Color` or `Border` clip their child to their bounds, so a row too wide for a card is cut at the card's edge. Text fields fit a long hint or label to the field and end it with "…". Set `Overflow: true` on `Card`, `Surface`, `InkSurface` or `Container` to let the child paint outside, e.g. for a badge that hangs over the corner. The clip follows the component's rounded corners, so an image at the top of a card fills its corners exactly.
 
 `CGO_ENABLED=0 go run ./examples/material` opens the gallery with every component, a dark-mode toggle and a seed picker.
 
-Known gaps compared to Flutter: the time picker is input-only with 24-hour time (no dial), ripples in segmented buttons aren't clipped to the pill ends, carousel items are visual only (use `OnTap`; no buttons inside items), and fonts are the Go fonts, not Roboto.
+Known gaps compared to Flutter: the time picker is input-only with 24-hour time (no dial), carousel items are visual only (use `OnTap`; no buttons inside items), and fonts are the Go fonts, not Roboto.
 
 ### Component themes
 

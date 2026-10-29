@@ -84,7 +84,12 @@ type InkSurface struct {
 	// Overflow lets the child paint outside the surface (clipped to its
 	// bounds by default).
 	Overflow bool
-	Child    w.Widget
+	// Highlight, when set, is where hover / focus / press feedback shows
+	// (a rect in the surface's local coordinates and its corner radius),
+	// instead of the whole surface: a navigation destination highlights its
+	// indicator pill, not the full item.
+	Highlight func(size geom.Size) (rect geom.Rect, radius float32)
+	Child     w.Widget
 }
 
 func (InkSurface) CreateState() w.State { return &inkState{} }
@@ -197,11 +202,18 @@ func (s *inkState) Build(ctx w.BuildContext) w.Widget {
 		if ww.BorderWidth > 0 && ww.BorderColor.A > 0 {
 			c.StrokeRoundRect(r, rad, ww.BorderWidth, ww.BorderColor)
 		}
+		// Hover, press and focus feedback go on the highlight shape (the
+		// whole surface unless Highlight says otherwise).
+		if ww.Highlight != nil {
+			hr, hrad := ww.Highlight(size)
+			r = hr.Translate(o)
+			rad = min(hrad, r.W/2, r.H/2)
+		}
 		layer := max(s.hoverA.Value()*HoverOpacity, s.focusA.Value()*FocusOpacity)
 		if layer > 0 {
 			c.FillRoundRect(r, rad, ww.ContentColor.WithAlpha(ww.ContentColor.A*layer))
 		}
-		maxR := float32(math.Hypot(float64(size.W), float64(size.H)))
+		maxR := float32(math.Hypot(float64(r.W), float64(r.H)))
 		for _, rp := range s.ripples {
 			rr := maxR * (0.3 + 0.7*rp.grow.Value())
 			a := PressedOpacity * rp.fade.Value()

@@ -312,7 +312,11 @@ func (s *textFieldState) build(ctx w.BuildContext) w.Widget {
 			c.FillRoundRect(r, radius, fill)
 			c.FillRect(geom.Rect{X: r.X, Y: r.Bottom() - radius, W: r.W, H: min(radius, r.H)}, fill)
 			if s.hovered && !tf.Disabled {
-				c.FillRoundRect(r, radius, sc.OnSurface.WithAlpha(HoverOpacity))
+				// Same shape as the fill: rounded top, square bottom.
+				hc := sc.OnSurface.WithAlpha(HoverOpacity)
+				c.PushClip(r)
+				c.FillRoundRect(geom.Rect{X: r.X, Y: r.Y, W: r.W, H: r.H + radius}, radius, hc)
+				c.PopClip()
 			}
 			if bw > 0 {
 				c.FillRect(geom.Rect{X: r.X, Y: r.Bottom() - bw, W: r.W, H: bw}, indicator)
